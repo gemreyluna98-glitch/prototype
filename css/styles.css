@@ -1,0 +1,405 @@
+/* ==========================================================================
+   Cohin Inventory System — Design Tokens
+   Identity: warehouse manifest / logistics ledger, not generic SaaS blue.
+   ========================================================================== */
+:root {
+  --ink: #1B2130;
+  --ink-soft: #4A5164;
+  --paper: #EDEFF2;
+  --card: #FFFFFF;
+  --border: #D8DCE2;
+  --border-soft: #E6E9ED;
+
+  --amber: #E0993D;
+  --amber-dark: #C27E28;
+  --steel: #3E6C8E;
+  --steel-dark: #2E5470;
+  --green: #3F8F5F;
+  --green-dark: #327349;
+  --red: #C1443A;
+  --red-dark: #A5352C;
+  --violet: #6D5BD0;
+  --grey-mid: #6B7280;
+
+  --radius-sm: 4px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow-1: 0 1px 3px rgba(27, 33, 48, 0.08);
+  --shadow-2: 0 10px 25px -8px rgba(27, 33, 48, 0.25);
+
+  --font-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+}
+
+body.dark-mode {
+  --ink: #E7E9EE;
+  --ink-soft: #A8AFBC;
+  --paper: #12151C;
+  --card: #1B212C;
+  --border: #2B3342;
+  --border-soft: #262D3B;
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 10px 25px -8px rgba(0, 0, 0, 0.6);
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  margin: 0;
+  padding: 24px 16px 60px;
+  background-color: var(--paper);
+  color: var(--ink);
+  transition: background-color 0.25s ease, color 0.25s ease;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container {
+  background-color: var(--card);
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  border: 1px solid var(--border-soft);
+  max-width: 960px;
+  margin: auto;
+  position: relative;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2.4em;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+h1, h2 { color: var(--ink); text-align: center; }
+h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.container > h1 {
+  border-bottom: 3px solid var(--amber);
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+.container > h1::after {
+  content: 'MATERIAL STOCK MANIFEST';
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.32em;
+  letter-spacing: 0.25em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  margin-top: 6px;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   Info bar — "manifest ticket stub" signature element
+   ========================================================================== */
+.info-bar {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  gap: 18px;
+  padding: 14px 20px;
+  background-color: var(--paper);
+  background-image: repeating-linear-gradient(90deg, var(--border) 0, var(--border) 8px, transparent 8px, transparent 16px);
+  background-size: 100% 1px;
+  background-position: bottom;
+  background-repeat: no-repeat;
+  border-radius: var(--radius-lg);
+  margin-bottom: 18px;
+  border: 1px dashed var(--border);
+  position: relative;
+}
+.info-bar::before, .info-bar::after {
+  content: '';
+  position: absolute;
+  top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px;
+  background: var(--paper);
+  border-radius: 50%;
+  border: 1px dashed var(--border);
+}
+.info-bar::before { left: -9px; }
+.info-bar::after { right: -9px; }
+.info-item { display: flex; align-items: center; gap: 8px; }
+.info-item label {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.info-item input, .info-item select {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9em;
+  font-family: var(--font-mono);
+  background-color: var(--card);
+  color: var(--ink);
+}
+
+/* ==========================================================================
+   Section headers / buttons
+   ========================================================================== */
+.header-with-add-button { display: flex; justify-content: center; align-items: center; position: relative; margin-bottom: 15px; }
+.header-with-add-button h2 { margin: 0; font-size: 1.5em; }
+.header-button-group { position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: flex; gap: 10px; }
+.add-item-icon-btn {
+  color: white; border: none; border-radius: var(--radius);
+  width: 40px; height: 40px; font-size: 1.4em; cursor: pointer;
+  box-shadow: var(--shadow-1); display: flex; justify-content: center; align-items: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.add-item-icon-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.add-item-icon-btn i { font-size: 0.7em; }
+#fileOpsButton { background-color: var(--steel); }
+
+.main-buttons { display: flex; justify-content: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+.main-buttons button {
+  background-color: var(--amber); color: white;
+  padding: 9px 16px; border: none; border-radius: var(--radius);
+  cursor: pointer; font-size: 0.85em; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  box-shadow: var(--shadow-1);
+}
+.main-buttons button:hover { background-color: var(--amber-dark); transform: translateY(-1px); box-shadow: var(--shadow-2); }
+.main-buttons button:active { transform: translateY(0); }
+
+/* ==========================================================================
+   Table — dense manifest ledger
+   ========================================================================== */
+.table-container { overflow-x: auto; width: 100%; border-radius: var(--radius); border: 1px solid var(--border-soft); }
+table { width: 100%; border-collapse: collapse; margin-top: 0; }
+th, td { border: 1px solid var(--border-soft); padding: 9px 12px; text-align: left; vertical-align: top; white-space: nowrap; }
+th {
+  background-color: var(--paper); color: var(--ink-soft); font-weight: 700;
+  text-transform: uppercase; font-size: 0.72em; letter-spacing: 0.09em;
+  font-family: var(--font-mono);
+}
+td { font-family: var(--font-mono); font-size: 0.92em; }
+tbody tr:nth-child(even) { background-color: var(--paper); }
+tbody tr:hover { background-color: rgba(224, 153, 61, 0.1); transition: background-color 0.15s ease; }
+.column-hidden { display: none; }
+.error-message { color: var(--red); font-size: 0.9em; margin-top: 10px; margin-bottom: 10px; text-align: center; min-height: 1em; font-family: var(--font-body); }
+
+/* ==========================================================================
+   Modals
+   ========================================================================== */
+.modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(18, 21, 28, 0.55); padding-top: 60px; }
+.modal-content {
+  background-color: var(--card); margin: 5% auto; padding: 32px;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+  width: 90%; max-width: 600px; box-shadow: var(--shadow-2);
+  border-top: 4px solid var(--amber);
+}
+.modal-content h2 { text-align: center; color: var(--ink); margin-bottom: 24px; font-weight: 700; font-size: 1.6em; }
+.item-input { display: flex; flex-direction: column; margin-bottom: 18px; }
+.item-input label { display: block; margin-bottom: 7px; font-weight: 600; color: var(--ink-soft); text-align: left; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.05em; }
+.item-input input[type="text"], .item-input input[type="number"], .item-input input[type="date"], .item-input input[type="password"], .item-input select {
+  width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 1em; box-sizing: border-box; transition: border-color 0.15s, box-shadow 0.15s;
+  background-color: var(--card); color: var(--ink); font-family: var(--font-mono);
+}
+.item-input input:focus, .item-input select:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px rgba(224, 153, 61, 0.18); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 28px; flex-wrap: wrap; }
+.modal-actions button {
+  padding: 11px 20px; border: none; border-radius: var(--radius); cursor: pointer;
+  font-size: 0.85em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  color: white; transition: transform 0.15s, box-shadow 0.15s;
+}
+.modal-actions button:hover { transform: translateY(-1px); box-shadow: var(--shadow-1); }
+#confirmImportButton, #saveBreakdownButton, #confirmWithdrawButton, #restoreButton, #confirmBulkClearButton, #confirmBulkWithdrawButton, #confirmBulkDeliveryButton, #confirmUnlockButton { background-color: var(--green); }
+#confirmImportButton:hover, #saveBreakdownButton:hover, #confirmWithdrawButton:hover, #restoreButton:hover, #confirmBulkClearButton:hover, #confirmBulkWithdrawButton:hover, #confirmBulkDeliveryButton:hover, #confirmUnlockButton:hover { background-color: var(--green-dark); }
+#cancelImportButton, #cancelBreakdownButton, #deleteItemInModalButton, #cancelWithdrawButton, #cancelFileOps, #cancelClearChoice, #cancelBulkClear, #cancelBulkWithdraw, #cancelBulkDelivery, #cancelUnlockButton { background-color: var(--red); }
+#cancelImportButton:hover, #cancelBreakdownButton:hover, #deleteItemInModalButton:hover, #cancelWithdrawButton:hover, #cancelFileOps:hover, #cancelClearChoice:hover, #cancelBulkClear:hover, #cancelBulkWithdraw:hover, #cancelBulkDelivery:hover, #cancelUnlockButton:hover { background-color: var(--red-dark); }
+#backupButton { background-color: var(--steel); }
+#backupButton:hover { background-color: var(--steel-dark); }
+#exportExcelButton { background-color: var(--grey-mid); }
+#triggerClearAllButton { background-color: var(--red); }
+#openImportModalButton { background-color: var(--paper); color: var(--ink); border: 1px solid var(--border) !important; }
+#triggerBulkClearButton { background-color: var(--amber); color: #fff; }
+.editable-breakdown { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; color: var(--steel); font-weight: 600; }
+.location-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  background-color: rgba(62, 108, 142, 0.12);
+  color: var(--steel-dark);
+  border: 1px solid rgba(62, 108, 142, 0.3);
+  border-radius: 999px;
+  padding: 1px 8px 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.location-tag i { font-size: 0.85em; }
+body.dark-mode .location-tag { background-color: rgba(127, 179, 213, 0.14); color: #9FC6DE; border-color: rgba(127, 179, 213, 0.35); }
+body.dark-mode .editable-breakdown { color: #7FB3D5; }
+.color-green { color: var(--green); font-weight: bold; }
+.color-orange { color: #B8960C; font-weight: bold; } /* HOLD */
+body.dark-mode .color-orange { color: #E8C547; } /* HOLD — brighter for dark bg contrast */
+.color-pink { color: #C0578A; font-weight: bold; }
+.color-grey { color: var(--grey-mid); font-weight: normal; }
+
+/* ==========================================================================
+   Detailed Item Report
+   ========================================================================== */
+.action-badge { display: inline-block; padding: 3px 10px; border-radius: var(--radius-sm); font-size: 0.72em; font-weight: 700; color: #fff; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em; font-family: var(--font-mono); }
+.badge-delivery { background-color: var(--green); }
+.badge-withdraw { background-color: var(--red); }
+.badge-edit { background-color: var(--steel); }
+.badge-delete { background-color: var(--violet); }
+.badge-clear { background-color: var(--amber-dark); }
+.badge-other { background-color: var(--grey-mid); }
+.qty-delta-positive { color: var(--green); font-weight: 700; font-family: var(--font-mono); }
+.qty-delta-negative { color: var(--red); font-weight: 700; font-family: var(--font-mono); }
+.qty-delta-neutral { color: var(--grey-mid); font-weight: 600; font-family: var(--font-mono); }
+#itemReportSummary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.report-stat-card { flex: 1; min-width: 110px; background-color: var(--paper); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 10px 12px; text-align: center; }
+.report-stat-card .stat-label { font-size: 0.68em; color: var(--ink-soft); text-transform: uppercase; font-weight: 700; letter-spacing: 0.06em; font-family: var(--font-mono); }
+.report-stat-card .stat-value { font-size: 1.3em; font-weight: 700; color: var(--ink); margin-top: 2px; font-family: var(--font-mono); }
+#itemReportTableWrapper { max-height: 420px; overflow-y: auto; border: 1px solid var(--border-soft); border-radius: var(--radius); }
+#itemReportTable { width: 100%; border-collapse: collapse; font-size: 0.85em; table-layout: fixed; }
+#itemReportTable th:nth-child(1), #itemReportTable td:nth-child(1) { width: 18%; }
+#itemReportTable th:nth-child(2), #itemReportTable td:nth-child(2) { width: 14%; }
+#itemReportTable th:nth-child(3), #itemReportTable td:nth-child(3) { width: 12%; }
+#itemReportTable th:nth-child(4), #itemReportTable td:nth-child(4) { width: 56%; }
+#itemReportTable td { padding: 9px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; word-break: break-word; overflow-wrap: break-word; white-space: normal; font-family: var(--font-body); }
+.breakdown-compare { display: flex; flex-direction: column; gap: 6px; }
+.breakdown-row { display: flex; align-items: flex-start; gap: 8px; }
+.breakdown-row-label { flex: 0 0 auto; font-size: 0.68em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); padding-top: 2px; min-width: 42px; font-family: var(--font-mono); }
+.breakdown-row-value { flex: 1; word-break: break-word; overflow-wrap: break-word; line-height: 1.5; font-family: var(--font-mono); }
+#itemReportTable th { position: sticky; top: 0; background-color: var(--paper); text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--border); font-size: 0.72em; text-transform: uppercase; color: var(--ink-soft); font-family: var(--font-mono); }
+#itemReportTable tr:last-child td { border-bottom: none; }
+#itemReportEmptyState { text-align: center; padding: 30px; color: var(--ink-soft); }
+
+/* ==========================================================================
+   Filters
+   ========================================================================== */
+.filter-section {
+  margin-top: 15px; margin-bottom: 15px; border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+  padding: 15px; display: flex; flex-wrap: wrap; justify-content: center; gap: 15px;
+  background-color: var(--paper); box-shadow: none;
+}
+.filter-header { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 6px; color: var(--ink-soft); font-weight: 700; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.08em; font-family: var(--font-mono); }
+.filter-group { display: flex; align-items: center; gap: 8px; }
+.filter-group label { font-weight: bold; white-space: nowrap; display: flex; align-items: center; gap: 5px; font-size: 0.9em; color: var(--ink); }
+.filter-group label i { font-size: 1em; color: var(--amber-dark); }
+.filter-section select, .filter-section input[type="text"] { padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.88em; min-width: 120px; background-color: var(--card); color: var(--ink); font-family: var(--font-mono); }
+hr { border: 0; height: 1px; background: var(--border); margin: 15px 0; }
+#historyTable th:nth-child(1), #historyTable td:nth-child(1) { white-space: nowrap; width: 160px; }
+#historyTable td:nth-child(4) { white-space: normal; font-family: var(--font-body); }
+
+#clearHistoryButton { background-color: var(--grey-mid); float: right; margin-top: 10px; padding: 8px 16px; border-radius: var(--radius-sm); font-size: 0.85em; color: #fff; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
+#clearHistoryButton:hover { background-color: #545b64; transform: translateY(-1px); }
+.history-header { display: flex; justify-content: center; align-items: center; position: relative; margin-bottom: 10px; }
+.history-header h2 { margin: 0; }
+.history-header button { position: absolute; right: 0; }
+
+#bulkClearList, #bulkWithdrawList, #bulkDeliveryList { max-height: 350px; overflow-y: auto; border: 1px solid var(--border-soft); padding: 10px; border-radius: var(--radius); margin-top: 15px; }
+.total-avail-label { color: var(--ink-soft); }
+.bulk-clear-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border-soft); }
+.bulk-clear-item:last-child { border-bottom: none; }
+.bulk-clear-item .item-info { display: flex; align-items: center; gap: 10px; }
+.bulk-clear-item .item-qty { font-family: var(--font-mono); font-size: 0.92em; color: var(--ink-soft); }
+.bulk-clear-item input[type="checkbox"] { width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--amber); }
+.bulk-clear-item label { font-size: 0.95em; user-select: none; cursor: pointer; font-family: var(--font-mono); }
+.bulk-select-actions { display: flex; gap: 10px; margin-bottom: 15px; }
+.bulk-select-actions button { font-size: 0.82em; padding: 6px 12px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--card); color: var(--ink); cursor: pointer; }
+.bulk-select-actions button:hover { border-color: var(--amber); color: var(--amber-dark); }
+.readonly-display { background-color: var(--paper); padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-height: 21px; font-weight: bold; font-family: var(--font-mono); }
+.readonly-display .total-label { margin-left: 15px; color: var(--ink-soft); }
+
+.bulk-del-item { display: flex; justify-content: space-between; align-items: center; background: var(--paper); border: 1px solid var(--border-soft); padding: 8px 12px; margin-bottom: 5px; border-radius: var(--radius-sm); }
+.bulk-del-item button { background: var(--red); color: white; border: none; border-radius: var(--radius-sm); padding: 3px 9px; cursor: pointer; font-size: 0.85em; margin-left: 10px; }
+.bulk-del-item button:hover { background: var(--red-dark); }
+
+#addToListBulkBtn { background-color: var(--steel); color: white; padding: 9px 15px; border: none; border-radius: var(--radius-sm); cursor: pointer; width: 100%; margin-top: 5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; font-size: 0.85em; }
+#addToListBulkBtn:hover { background-color: var(--steel-dark); }
+
+/* ==========================================================================
+   Transaction history toggle
+   ========================================================================== */
+#transactionHistoryToggle { background-color: var(--paper) !important; border: 1px solid var(--border-soft) !important; }
+#transactionHistoryToggle h2 { color: var(--ink) !important; }
+#transactionHistoryToggle i { color: var(--ink-soft) !important; }
+#transactionHistoryToggle:hover { background-color: var(--border-soft) !important; }
+
+/* ==========================================================================
+   Print options / withdraw labels
+   ========================================================================== */
+.print-options-container { margin: 15px 0; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border-soft); padding: 15px; border-radius: var(--radius-lg); background-color: var(--paper); }
+.withdraw-qty-label { color: var(--ink-soft); }
+.withdraw-total-label { color: var(--ink); }
+.modal-content p { color: var(--ink-soft); }
+
+/* ==========================================================================
+   Autocomplete
+   ========================================================================== */
+.autocomplete-wrapper { position: relative; width: 100%; }
+.autocomplete-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: var(--card); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius) var(--radius); z-index: 99; max-height: 150px; overflow-y: auto; box-shadow: var(--shadow-2); display: none; }
+.autocomplete-option { padding: 10px; cursor: pointer; color: var(--ink); font-family: var(--font-mono); }
+.autocomplete-option:hover, .autocomplete-option.active { background-color: var(--paper); }
+
+/* ==========================================================================
+   Misc
+   ========================================================================== */
+.highlight { background-color: #F7D774; color: #1B2130; padding: 0 3px; border-radius: 2px; font-weight: bold; }
+body.dark-mode .highlight { background-color: var(--amber); color: #12151C; }
+.developer-link { color: var(--steel); }
+body.dark-mode .developer-link { color: #7FB3D5 !important; }
+#movementFilterOptions { background-color: var(--paper); }
+#secondaryFilters { border-top-color: var(--border); }
+
+/* Dark-mode edge cases not fully covered by variables above */
+body.dark-mode .print-options-container p { color: #7FB3D5 !important; }
+body.dark-mode .print-options-container small { color: var(--ink-soft) !important; }
+body.dark-mode #openImportModalButton { background-color: var(--paper); color: var(--ink); }
+body.dark-mode #printInventoryButton { background-color: var(--amber-dark); color: white; }
+body.dark-mode #clearInventoryButton { background-color: var(--red); color: white; }
+body.dark-mode .bulk-del-item input { background-color: var(--card); color: var(--ink); border-color: var(--border); }
+body.dark-mode .bulk-del-item input::placeholder { color: var(--ink-soft); }
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+@media (max-width: 768px) {
+  body { padding: 12px 8px 40px; }
+  .container { padding: 16px; }
+  .info-bar, .main-buttons, .filter-section { flex-direction: column; align-items: stretch; }
+  .info-bar::before, .info-bar::after { display: none; }
+  .info-item { justify-content: space-between; width: 100%; margin: 4px 0; }
+  .main-buttons button, .filter-group { width: 100%; margin: 4px 0; box-sizing: border-box; justify-content: center; }
+  .filter-group { flex-direction: column; align-items: flex-start; gap: 5px; }
+  .filter-section select, .filter-section input[type="text"] { width: 100%; box-sizing: border-box; }
+  .add-item-icon-btn { right: 10px; }
+  .modal-content { width: 95%; padding: 20px; margin: 8% auto; }
+  .table-container { overflow-x: hidden; border: none; }
+  table, thead, tbody, th, td, tr { display: block; }
+  thead tr { position: absolute; top: -9999px; left: -9999px; }
+  tr { border: 1px solid var(--border-soft); border-radius: var(--radius-sm); margin-bottom: 10px; }
+  td { border: none; border-bottom: 1px solid var(--border-soft); position: relative; padding-left: 50%; text-align: right; white-space: normal; }
+  td:before { position: absolute; top: 9px; left: 10px; width: 45%; padding-right: 10px; white-space: nowrap; text-align: left; font-weight: bold; content: attr(data-label); font-family: var(--font-mono); font-size: 0.85em; color: var(--ink-soft); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}

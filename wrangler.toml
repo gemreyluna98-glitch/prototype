@@ -1,0 +1,7 @@
+name = "cohin-inventory-system"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "."
+
+kv_namespaces = [
+  { binding = "COHIN_KV", id = "e65050b163264309a5695a2ca285716c" }
+]
