@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -22,10 +22,10 @@
         </div>
         <hr>
         <div class="floating-action-buttons" style="position: fixed; right: 20px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 10px; z-index: 1000;">
-            <button id="lockSystemButton" class="add-item-icon-btn" title="System Locked" style="background-color: #dc3545;"><i class="fas fa-lock"></i></button>
-            <button id="darkModeToggle" class="add-item-icon-btn" title="Toggle Dark Mode" style="background-color: #6c757d;"><i class="fas fa-moon"></i></button>
+            <button id="lockSystemButton" class="add-item-icon-btn" title="System Locked" style="background-color: var(--red);"><i class="fas fa-lock"></i></button>
+            <button id="darkModeToggle" class="add-item-icon-btn" title="Toggle Dark Mode" style="background-color: var(--grey-mid);"><i class="fas fa-moon"></i></button>
             <button id="fileOpsButton" class="add-item-icon-btn" title="File Operations"><i class="fas fa-folder-open"></i></button>
-            <label id="buildingRackToggleWrapper" for="showBuildingRackCheckbox" title="Show Building/Rack" style="display:flex; flex-direction:column; align-items:center; gap:2px; background:#17a2b8; color:white; border-radius:8px; padding:6px 4px; cursor:pointer; box-shadow: var(--shadow-1); font-size: 0.65em; text-align:center; line-height:1.1;">
+            <label id="buildingRackToggleWrapper" for="showBuildingRackCheckbox" title="Show Building/Rack" style="display:flex; flex-direction:column; align-items:center; gap:2px; background:var(--steel-dark); color:white; border-radius:var(--radius-sm); padding:6px 4px; cursor:pointer; box-shadow: var(--shadow-1); font-size: 0.65em; text-align:center; line-height:1.1;">
                 <input type="checkbox" id="showBuildingRackCheckbox" checked style="width:14px; height:14px; cursor:pointer; margin:0 0 2px 0;">
                 <i class="fas fa-warehouse"></i>
                 <span>Bldg/Rack</span>
@@ -33,9 +33,9 @@
         </div>
         <div id="errorMessage" class="error-message"></div>
         <div class="main-buttons" style="justify-content: center;">
-            <button id="openBulkDeliveriesModalButton" style="background-color: #6f42c1;"><i class="fas fa-shipping-fast"></i> Bulk Deliveries</button>
-            <button id="openBulkWithdrawModalButton" style="background-color: #fd7e14;"><i class="fas fa-dolly-flatbed"></i> Bulk Withdraw</button>
-            <button id="openVarianceModalButton" style="background-color: #6610f2;"><i class="fas fa-balance-scale"></i> Variance Tracker</button>
+            <button id="openBulkDeliveriesModalButton" style="background-color: var(--green);"><i class="fas fa-shipping-fast"></i> Bulk Deliveries</button>
+            <button id="openBulkWithdrawModalButton" style="background-color: var(--amber);"><i class="fas fa-dolly-flatbed"></i> Bulk Withdraw</button>
+            <button id="openVarianceModalButton" style="background-color: var(--violet);"><i class="fas fa-balance-scale"></i> Variance Tracker</button>
         </div>
         <hr>
         <div class="filter-section">
@@ -54,7 +54,7 @@
                     <label for="materialCodeSort"><i class="fas fa-sort-alpha-down"></i> Sort Code:</label>
                     <select id="materialCodeSort" style="padding: 6px; font-size: 0.9em;"> <option value="NONE">Unsorted</option><option value="ASC" selected>A-Z</option><option value="DESC">Z-A</option> </select>
                 </div>
-                <button id="toggleMoreFiltersBtn" style="background-color: #6c757d; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9em; display: flex; align-items: center; gap: 5px;">
+                <button id="toggleMoreFiltersBtn" style="background-color: var(--grey-mid); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9em; display: flex; align-items: center; gap: 5px;">
                     <i class="fas fa-sliders-h"></i> More
                 </button>
             </div>
@@ -126,8 +126,8 @@
             </div>
 
             <div class="modal-actions">
-                <button id="compareVarianceButton" style="background-color: #6610f2;">Compare</button>
-                <button id="closeVarianceModalButton" style="background-color: #6c757d;">Close</button>
+                <button id="compareVarianceButton" style="background-color: var(--violet);">Compare</button>
+                <button id="closeVarianceModalButton" style="background-color: var(--grey-mid);">Close</button>
             </div>
         </div>
     </div>
@@ -150,7 +150,7 @@
             <div class="filter-section" style="padding: 15px; margin-top: 0; margin-bottom: 10px; gap: 15px;">
                 <div class="filter-group"> <label for="historyDateFrom"><i class="fas fa-calendar-alt"></i> From:</label> <input type="date" id="historyDateFrom"> </div>
                 <div class="filter-group"> <label for="historyDateTo"><i class="fas fa-calendar-alt"></i> To:</label> <input type="date" id="historyDateTo"> </div>
-                <div class="filter-group"> <button id="resetHistoryFilter" style="background-color: #6c757d; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer;"><i class="fas fa-undo"></i> Reset</button> </div>
+                <div class="filter-group"> <button id="resetHistoryFilter" style="background-color: var(--grey-mid); color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer;"><i class="fas fa-undo"></i> Reset</button> </div>
             </div>
             <div class="table-container">
                 <table id="historyTable">
@@ -238,8 +238,8 @@
                 <button id="backupButton"><i class="fas fa-download"></i> Backup</button>
                 <button id="restoreButton"><i class="fas fa-upload"></i> Restore</button>
                 <button id="exportExcelButton"><i class="fas fa-file-excel"></i> Export Report</button>
-                <button id="printInventoryButton" style="background-color: #f39c12;"><i class="fas fa-print"></i> Print</button>
-                <button id="clearInventoryButton" style="background-color: #dc3545;"><i class="fas fa-trash-alt"></i> Clear Data</button>
+                <button id="printInventoryButton" style="background-color: var(--amber);"><i class="fas fa-print"></i> Print</button>
+                <button id="clearInventoryButton" style="background-color: var(--red);"><i class="fas fa-trash-alt"></i> Clear Data</button>
             </div>
             <div class="modal-actions">
                 <button id="cancelFileOps">Cancel</button>
@@ -268,7 +268,7 @@
                 <input type="text" id="bulkWithdrawQtyInput" placeholder="e.g. 50">
             </div>
 
-            <button id="addToListWithdrawBtn" style="background-color: #17a2b8; color: white; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 5px;"><i class="fas fa-plus"></i> Add to List</button>
+            <button id="addToListWithdrawBtn" style="background-color: var(--steel); color: white; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 5px;"><i class="fas fa-plus"></i> Add to List</button>
 
             <div id="pendingWithdrawalListContainer" style="margin-top:15px;"></div>
 
