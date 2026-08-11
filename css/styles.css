@@ -1,46 +1,46 @@
 /* ==========================================================================
    Cohin Inventory System — Design Tokens
-   Identity: warehouse manifest / logistics ledger, not generic SaaS blue.
+   Identity: precision operations console — clean, confident, data-dense.
    ========================================================================== */
 :root {
-  --ink: #1B2130;
-  --ink-soft: #4A5164;
-  --paper: #EDEFF2;
+  --ink: #101828;
+  --ink-soft: #475467;
+  --paper: #F7F8FA;
   --card: #FFFFFF;
-  --border: #D8DCE2;
-  --border-soft: #E6E9ED;
+  --border: #D0D5DD;
+  --border-soft: #E4E7EC;
 
-  --amber: #E0993D;
-  --amber-dark: #C27E28;
-  --steel: #3E6C8E;
-  --steel-dark: #2E5470;
-  --green: #3F8F5F;
-  --green-dark: #327349;
-  --red: #C1443A;
-  --red-dark: #A5352C;
-  --violet: #6D5BD0;
-  --grey-mid: #6B7280;
+  --amber: #B8791E;
+  --amber-dark: #94611A;
+  --steel: #1E4B7A;
+  --steel-dark: #153A61;
+  --green: #157F5C;
+  --green-dark: #0F6249;
+  --red: #B3261E;
+  --red-dark: #8C1D17;
+  --violet: #5B45C4;
+  --grey-mid: #667085;
 
-  --radius-sm: 4px;
-  --radius: 8px;
-  --radius-lg: 12px;
-  --shadow-1: 0 1px 3px rgba(27, 33, 48, 0.08);
-  --shadow-2: 0 10px 25px -8px rgba(27, 33, 48, 0.25);
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --shadow-2: 0 16px 32px -12px rgba(16, 24, 40, 0.22);
 
-  --font-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --font-display: 'Sora', 'Segoe UI', sans-serif;
   --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
 }
 
 body.dark-mode {
-  --ink: #E7E9EE;
-  --ink-soft: #A8AFBC;
-  --paper: #12151C;
-  --card: #1B212C;
-  --border: #2B3342;
-  --border-soft: #262D3B;
-  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 10px 25px -8px rgba(0, 0, 0, 0.6);
+  --ink: #E9EBF0;
+  --ink-soft: #98A2B3;
+  --paper: #0D1117;
+  --card: #161B22;
+  --border: #2D3441;
+  --border-soft: #232A35;
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-2: 0 18px 36px -12px rgba(0, 0, 0, 0.7);
 }
 
 /* ==========================================================================
@@ -73,32 +73,42 @@ h1 {
   margin: 0 0 4px;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 2.4em;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  font-size: 2em;
+  letter-spacing: -0.01em;
 }
 h1, h2 { color: var(--ink); text-align: center; }
 h2 {
   font-family: var(--font-display);
   font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  letter-spacing: -0.005em;
 }
 .container > h1 {
-  border-bottom: 3px solid var(--amber);
-  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 16px;
   margin-bottom: 18px;
 }
 .container > h1::after {
   content: 'MATERIAL STOCK MANIFEST';
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   font-family: var(--font-mono);
   font-size: 0.32em;
-  letter-spacing: 0.25em;
+  letter-spacing: 0.18em;
   color: var(--ink-soft);
   text-transform: uppercase;
-  margin-top: 6px;
-  font-weight: 500;
+  margin-top: 8px;
+  font-weight: 600;
+}
+.container > h1::before {
+  content: '';
+  display: block;
+  width: 34px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--steel);
+  margin: 0 auto 10px;
 }
 
 /* ==========================================================================
@@ -106,29 +116,14 @@ h2 {
    ========================================================================== */
 .info-bar {
   display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
-  gap: 18px;
-  padding: 14px 20px;
+  gap: 20px;
+  padding: 14px 22px;
   background-color: var(--paper);
-  background-image: repeating-linear-gradient(90deg, var(--border) 0, var(--border) 8px, transparent 8px, transparent 16px);
-  background-size: 100% 1px;
-  background-position: bottom;
-  background-repeat: no-repeat;
   border-radius: var(--radius-lg);
   margin-bottom: 18px;
-  border: 1px dashed var(--border);
-  position: relative;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--steel);
 }
-.info-bar::before, .info-bar::after {
-  content: '';
-  position: absolute;
-  top: 50%; transform: translateY(-50%);
-  width: 16px; height: 16px;
-  background: var(--paper);
-  border-radius: 50%;
-  border: 1px dashed var(--border);
-}
-.info-bar::before { left: -9px; }
-.info-bar::after { right: -9px; }
 .info-item { display: flex; align-items: center; gap: 8px; }
 .info-item label {
   font-family: var(--font-mono);
@@ -167,14 +162,14 @@ h2 {
 .main-buttons { display: flex; justify-content: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
 .main-buttons button {
   background-color: var(--amber); color: white;
-  padding: 9px 16px; border: none; border-radius: var(--radius);
-  cursor: pointer; font-size: 0.85em; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 10px 18px; border: none; border-radius: var(--radius);
+  cursor: pointer; font-size: 0.88em; font-weight: 600;
+  letter-spacing: 0.01em; font-family: var(--font-body);
   display: inline-flex; align-items: center; gap: 8px;
   transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
   box-shadow: var(--shadow-1);
 }
-.main-buttons button:hover { background-color: var(--amber-dark); transform: translateY(-1px); box-shadow: var(--shadow-2); }
+.main-buttons button:hover { filter: brightness(0.92); transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .main-buttons button:active { transform: translateY(0); }
 
 /* ==========================================================================
@@ -190,7 +185,7 @@ th {
 }
 td { font-family: var(--font-mono); font-size: 0.92em; }
 tbody tr:nth-child(even) { background-color: var(--paper); }
-tbody tr:hover { background-color: rgba(224, 153, 61, 0.1); transition: background-color 0.15s ease; }
+tbody tr:hover { background-color: rgba(30, 75, 122, 0.07); transition: background-color 0.15s ease; }
 .column-hidden { display: none; }
 .error-message { color: var(--red); font-size: 0.9em; margin-top: 10px; margin-bottom: 10px; text-align: center; min-height: 1em; font-family: var(--font-body); }
 
@@ -202,9 +197,9 @@ tbody tr:hover { background-color: rgba(224, 153, 61, 0.1); transition: backgrou
   background-color: var(--card); margin: 5% auto; padding: 32px;
   border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
   width: 90%; max-width: 600px; box-shadow: var(--shadow-2);
-  border-top: 4px solid var(--amber);
+  border-top: 3px solid var(--steel);
 }
-.modal-content h2 { text-align: center; color: var(--ink); margin-bottom: 24px; font-weight: 700; font-size: 1.6em; }
+.modal-content h2 { text-align: center; color: var(--ink); margin-bottom: 24px; font-weight: 700; font-size: 1.45em; }
 .item-input { display: flex; flex-direction: column; margin-bottom: 18px; }
 .item-input label { display: block; margin-bottom: 7px; font-weight: 600; color: var(--ink-soft); text-align: left; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.05em; }
 .item-input input[type="text"], .item-input input[type="number"], .item-input input[type="date"], .item-input input[type="password"], .item-input select {
@@ -212,14 +207,14 @@ tbody tr:hover { background-color: rgba(224, 153, 61, 0.1); transition: backgrou
   font-size: 1em; box-sizing: border-box; transition: border-color 0.15s, box-shadow 0.15s;
   background-color: var(--card); color: var(--ink); font-family: var(--font-mono);
 }
-.item-input input:focus, .item-input select:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px rgba(224, 153, 61, 0.18); }
+.item-input input:focus, .item-input select:focus { outline: none; border-color: var(--steel); box-shadow: 0 0 0 3px rgba(30, 75, 122, 0.15); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 28px; flex-wrap: wrap; }
 .modal-actions button {
   padding: 11px 20px; border: none; border-radius: var(--radius); cursor: pointer;
-  font-size: 0.85em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
-  color: white; transition: transform 0.15s, box-shadow 0.15s;
+  font-size: 0.85em; font-weight: 600; letter-spacing: 0.01em;
+  color: white; transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
 }
-.modal-actions button:hover { transform: translateY(-1px); box-shadow: var(--shadow-1); }
+.modal-actions button:hover { filter: brightness(0.92); transform: translateY(-1px); box-shadow: var(--shadow-1); }
 #confirmImportButton, #saveBreakdownButton, #confirmWithdrawButton, #restoreButton, #confirmBulkClearButton, #confirmBulkWithdrawButton, #confirmBulkDeliveryButton, #confirmUnlockButton { background-color: var(--green); }
 #confirmImportButton:hover, #saveBreakdownButton:hover, #confirmWithdrawButton:hover, #restoreButton:hover, #confirmBulkClearButton:hover, #confirmBulkWithdrawButton:hover, #confirmBulkDeliveryButton:hover, #confirmUnlockButton:hover { background-color: var(--green-dark); }
 #cancelImportButton, #cancelBreakdownButton, #deleteItemInModalButton, #cancelWithdrawButton, #cancelFileOps, #cancelClearChoice, #cancelBulkClear, #cancelBulkWithdraw, #cancelBulkDelivery, #cancelUnlockButton { background-color: var(--red); }
@@ -400,6 +395,6 @@ body.dark-mode .bulk-del-item input::placeholder { color: var(--ink-soft); }
 }
 
 :focus-visible {
-  outline: 2px solid var(--amber);
+  outline: 2px solid var(--steel);
   outline-offset: 2px;
 }
