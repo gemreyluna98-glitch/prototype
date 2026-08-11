@@ -229,11 +229,12 @@ tbody tr:hover { background-color: rgba(30, 75, 122, 0.07); transition: backgrou
 .location-tag {
   color: var(--ink-soft);
   font-family: var(--font-mono);
-  font-size: 0.75em;
-  font-weight: 500;
+  font-size: 0.55em;
+  font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
-  vertical-align: middle;
+  vertical-align: super;
+  margin-left: 1px;
 }
 body.dark-mode .location-tag { color: var(--ink-soft); }
 body.dark-mode .editable-breakdown { color: #7FB3D5; }
