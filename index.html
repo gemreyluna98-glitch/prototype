@@ -225,7 +225,7 @@
         </div>
     </div>
     <div id="importDataModal" class="modal"> <div class="modal-content"> <h2>Import Data from Excel</h2> <div class="item-input"> <label for="excelSheetSelect">Select Sheet:</label> <select id="excelSheetSelect"></select> </div> <div class="item-input"> <label for="stockingQtyDateSelectModal">Select Stocking Qty Column (Optional):</label> <select id="stockingQtyDateSelectModal"></select> </div> <div id="importErrorMessageDiv" class="error-message"></div> <div class="modal-actions"> <button id="confirmImportButton">Import</button> <button id="cancelImportButton">Cancel</button> </div> </div> </div>
-    <div id="editBreakdownModal" class="modal"> <div class="modal-content"> <h2>Edit Item Details</h2> <div class="item-input"> <label for="editBreakdownInput">Stocking Qty:</label> <input type="text" id="editBreakdownInput"> </div> <div id="dynamicRemarksContainer"></div> <div class="modal-actions"> <button id="viewDetailedReportButton" style="background-color:#3b82f6;"><i class="fas fa-chart-bar"></i> Detailed Report</button> <button id="saveBreakdownButton">Save</button> <button id="cancelBreakdownButton">Cancel</button> <button id="deleteItemInModalButton">Delete Item</button> </div> </div> </div>
+    <div id="editBreakdownModal" class="modal"> <div class="modal-content"> <h2>Edit Item Details</h2> <p id="editBreakdownItemCode" class="edit-breakdown-item-code"></p> <div class="item-input" id="stockingQtyFieldGroup"> <label for="editBreakdownInput">Stocking Qty:</label> <input type="text" id="editBreakdownInput"> </div> <div id="editBreakdownPreview" class="edit-breakdown-preview"></div> <div id="dynamicRemarksContainer"></div> <div class="modal-actions"> <button id="viewDetailedReportButton" style="background-color:#3b82f6;"><i class="fas fa-chart-bar"></i> Detailed Report</button> <button id="saveBreakdownButton">Save</button> <button id="cancelBreakdownButton">Cancel</button> <button id="deleteItemInModalButton">Delete Item</button> </div> </div> </div>
 
     <div id="itemDetailedReportModal" class="modal">
         <div class="modal-content" style="max-width: 900px;">
@@ -410,6 +410,9 @@
         importErrorMessageDiv = document.getElementById('importErrorMessageDiv'),
         editBreakdownModal = document.getElementById('editBreakdownModal'),
         editBreakdownInput = document.getElementById('editBreakdownInput'),
+        editBreakdownItemCode = document.getElementById('editBreakdownItemCode'),
+        editBreakdownPreview = document.getElementById('editBreakdownPreview'),
+        stockingQtyFieldGroup = document.getElementById('stockingQtyFieldGroup'),
         dynamicRemarksContainer = document.getElementById('dynamicRemarksContainer'),
         showBuildingRackCheckbox = document.getElementById('showBuildingRackCheckbox'),
         includeBldgRackPrintCheckbox = document.getElementById('includeBldgRackPrintCheckbox'),
@@ -1285,9 +1288,10 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                         tbody tr:nth-child(even) td { background-color: #e5e5e5 !important; }
                         .footer { margin-top: 15px; font-weight: bold; font-size: 0.95em; }
                         .color-green { color: green; font-weight: bold; }
-                        .color-orange { color: orange; font-weight: bold; }
+                        .color-orange { color: #B8960C; font-weight: bold; }
                         .color-pink { color: #ff69b4; font-weight: bold; }
                         .color-grey { color: grey; font-weight: normal; }
+                        .location-tag { color: #555; font-family: 'Courier New', monospace; font-size: 0.65em; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; vertical-align: super; margin-left: 1px; }
                         @media print {
                             @page { margin: 0.5cm; }
                             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -1456,6 +1460,106 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             'hold new declaration'
         ];
 
+        function buildClickablePreviewParts(rawValue, remarks, locations) {
+            const formattedBreakdown = formatStockingQty(rawValue);
+            const parts = getBreakdownParts(formattedBreakdown);
+            if (!parts.length || (parts.length === 1 && !parts[0])) return [];
+            remarks = remarks || [];
+            locations = locations || [];
+
+            let groups;
+            if (isSimplifyBreakdownOn()) {
+                groups = [];
+                const keyIndexMap = new Map();
+                parts.forEach((part, idx) => {
+                    const trimmed = part.trim();
+                    const m = trimmed.match(/^([\d.,]+)\s*×\s*([\d.,]+)$/);
+                    if (m) {
+                        const multiplier = m[1], multiplicand = m[2];
+                        if (keyIndexMap.has(multiplicand)) {
+                            const g = groups[keyIndexMap.get(multiplicand)];
+                            g.multipliers.push(multiplier);
+                            g.indices.push(idx);
+                        } else {
+                            keyIndexMap.set(multiplicand, groups.length);
+                            groups.push({ type: 'mult', multiplicand, multipliers: [multiplier], indices: [idx] });
+                        }
+                    } else {
+                        groups.push({ type: 'plain', raw: trimmed, indices: [idx] });
+                    }
+                });
+            } else {
+                groups = parts.map((part, idx) => ({ type: 'plain', raw: part.trim(), indices: [idx] }));
+            }
+
+            const shorten = isShortenBreakdownOn();
+            return groups.map(g => {
+                let displayText;
+                if (g.type === 'plain') {
+                    displayText = g.raw;
+                    if (shorten) {
+                        const multMatch = displayText.match(/^([\d.,]+)\s*×/);
+                        if (multMatch) displayText = `(${multMatch[1]})`;
+                    }
+                } else if (g.multipliers.length > 1) {
+                    displayText = shorten ? `(${g.multipliers.join('+')})` : `(${g.multipliers.join(' + ')}) × ${g.multiplicand}`;
+                } else {
+                    displayText = shorten ? `(${g.multipliers[0]})` : `${g.multipliers[0]}×${g.multiplicand}`;
+                }
+                const firstIdx = g.indices[0];
+                const remark = remarks[firstIdx] || '';
+                const colorClass = getColorClassForRemark(remark);
+                const loc = (locations[firstIdx] || '').trim();
+                return { text: displayText, colorClass, loc, indices: g.indices };
+            });
+        }
+
+        function updateEditBreakdownPreview() {
+            if (!editBreakdownPreview) return;
+            const rawValue = editBreakdownInput.value;
+            const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
+            const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
+            const partsData = buildClickablePreviewParts(rawValue, currentRemarks, currentLocations);
+            if (!partsData.length) {
+                editBreakdownPreview.innerHTML = '<span style="color: var(--ink-soft);">No stock recorded</span>';
+                return;
+            }
+            editBreakdownPreview.innerHTML = partsData.map(p => {
+                const locTag = p.loc ? `<span class="location-tag">${p.loc}</span>` : '';
+                return `<span class="${p.colorClass} preview-part" data-indices="${p.indices.join(',')}" title="I-click para tumuon sa Remarks/Bldg-Rack ng part na ito">${p.text}</span>${locTag}`;
+            }).join(' <span class="preview-sep">|</span> ');
+        }
+
+        editBreakdownPreview.addEventListener('click', function(event) {
+            const target = event.target.closest('.preview-part');
+            if (!target) return;
+            const indices = target.dataset.indices.split(',').map(Number);
+
+            document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight'));
+
+            const remarkInputs = dynamicRemarksContainer.querySelectorAll('.remark-part-input');
+            const locationInputs = dynamicRemarksContainer.querySelectorAll('.location-part-input');
+            let firstGroup = null;
+
+            indices.forEach(idx => {
+                const remarkGroup = remarkInputs[idx] ? remarkInputs[idx].closest('.item-input') : null;
+                const locationGroup = locationInputs[idx] ? locationInputs[idx].closest('.item-input') : null;
+                if (remarkGroup) remarkGroup.classList.add('field-flash-highlight');
+                if (locationGroup) locationGroup.classList.add('field-flash-highlight');
+                if (!firstGroup) firstGroup = remarkGroup;
+            });
+
+            if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.add('stocking-qty-floating');
+
+            if (firstGroup) {
+                firstGroup.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+
+            setTimeout(() => {
+                document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight'));
+            }, 2200);
+        });
+
         function generateRemarksInputs(numParts, remarks, locations) {
             dynamicRemarksContainer.innerHTML = '';
             locations = locations || [];
@@ -1557,6 +1661,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                             e.preventDefault(); // prevent blur
                             input.value = opt.textContent;
                             dropdown.style.display = 'none';
+                            updateEditBreakdownPreview();
                             saveBreakdownButton.focus(); // Move focus to save button so the next Enter saves the form
                         });
                         dropdown.appendChild(opt);
@@ -1598,6 +1703,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                             e.stopPropagation(); // Prevent modal's global Enter listener from catching this and saving
                             input.value = options[activeIndex].textContent;
                             dropdown.style.display = 'none';
+                            updateEditBreakdownPreview();
                             saveBreakdownButton.focus(); // Move focus to save button so the next Enter saves the form
                         }
                         // If dropdown is NOT open, we do NOT prevent default or stop propagation.
@@ -2274,7 +2380,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         clearHistoryButton.addEventListener('click', () => { checkAccess(() => { if (confirm('Are you sure?')) { transactionHistory = []; historyTableBody.innerHTML = ''; logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); } }); });
         inventoryTableBody.addEventListener('click', (event) => { const targetCell = event.target.closest('.editable-breakdown'); if (targetCell) {
             checkAccess(() => {
-                currentEditingRow = targetCell.closest('tr'); editBreakdownInput.value = formatStockingQty(currentEditingRow.dataset.stockingQty); const remarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const locations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const parts = getBreakdownParts(formatStockingQty(currentEditingRow.dataset.stockingQty)); generateRemarksInputs(parts.length, remarks, locations); editBreakdownModal.style.display = 'block';
+                currentEditingRow = targetCell.closest('tr'); editBreakdownInput.value = formatStockingQty(currentEditingRow.dataset.stockingQty); const remarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const locations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const parts = getBreakdownParts(formatStockingQty(currentEditingRow.dataset.stockingQty)); generateRemarksInputs(parts.length, remarks, locations); if (editBreakdownItemCode) editBreakdownItemCode.textContent = currentEditingRow.dataset.code; if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.remove('stocking-qty-floating'); document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight')); updateEditBreakdownPreview(); editBreakdownModal.style.display = 'block';
             });
         }
         });
@@ -2292,7 +2398,8 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         cancelBulkClear.addEventListener('click', () => { bulkClearQtyModal.style.display = 'none'; });
         confirmBulkClearButton.addEventListener('click', () => { const selectedCheckboxes = Array.from(bulkClearList.querySelectorAll('input[type="checkbox"]:checked')); if (selectedCheckboxes.length === 0) { alert('Please select at least one item to clear.'); return; } const codesToClear = selectedCheckboxes.map(cb => cb.value); if (confirm(`Are you sure you want to clear the quantity for ${codesToClear.length} selected item(s)?`)) { codesToClear.forEach(code => { const targetRow = originalRowsOrder.find(row => row.dataset.code === code); if (targetRow) { targetRow.dataset.stockingQty = ''; targetRow.dataset.remarks = '[]'; targetRow.dataset.locations = '[]'; targetRow.cells[1].innerHTML = ''; targetRow.cells[2].textContent = '0'; targetRow.cells[3].textContent = ''; } }); saveInventoryToLocalStorage(); logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : '')); applyFiltersAndSort(); alert(`Successfully cleared quantities for ${codesToClear.length} item(s).`); bulkClearQtyModal.style.display = 'none'; } });
         confirmImportButton.addEventListener('click', () => { if (!confirm("Importing new data will overwrite the current inventory. Do you want to continue?")) { return; } const sheetName = excelSheetSelect.value; const worksheet = loadedWorkbook.Sheets[sheetName]; const qtyColIndex = stockingQtyDateSelectModal.value; const dataForHeaders = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); const codeHeaderRow = dataForHeaders[4] || []; const codeColIndex = codeHeaderRow.findIndex(h => typeof h === 'string' && h.trim().toUpperCase() === 'MATERIAL CODE'); if (codeColIndex === -1) { importErrorMessageDiv.textContent = `"MATERIAL CODE" column not found on Row 5.`; return; } inventoryTableBody.innerHTML = ''; originalRowsOrder = []; const range = XLSX.utils.decode_range(worksheet['!ref']); let importedCount = 0; for (let R = DATA_START_ROW_EXCEL_INDEX - 1; R <= range.e.r; ++R) { const codeCell = worksheet[XLSX.utils.encode_cell({c: codeColIndex, r: R})]; if (codeCell && codeCell.v) { importedCount++; const code = codeCell.w || codeCell.v.toString(); let stockingQty = ''; if (qtyColIndex) { const qtyCell = worksheet[XLSX.utils.encode_cell({c: parseInt(qtyColIndex), r: R})]; if (qtyCell) stockingQty = qtyCell.f || qtyCell.w || String(qtyCell.v) || ''; } renderRow({ code: code.trim(), stockingQty: stockingQty.toString(), remarks: Array(getBreakdownParts(formatStockingQty(stockingQty)).length).fill('') }, false); } } applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('IMPORT', '-', `Imported ${importedCount} items from sheet: ${sheetName}.`); importDataModal.style.display = 'none'; });
-        editBreakdownInput.addEventListener('input', function() { const parts = getBreakdownParts(formatStockingQty(this.value)); const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value); const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value); generateRemarksInputs(parts.length, currentRemarks, currentLocations); });
+        editBreakdownInput.addEventListener('input', function() { const parts = getBreakdownParts(formatStockingQty(this.value)); const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value); const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value); generateRemarksInputs(parts.length, currentRemarks, currentLocations); updateEditBreakdownPreview(); });
+        dynamicRemarksContainer.addEventListener('input', function(event) { if (event.target.classList.contains('remark-part-input') || event.target.classList.contains('location-part-input')) { updateEditBreakdownPreview(); } });
         saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryToLocalStorage(); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); editBreakdownModal.style.display = 'none'; });
         deleteItemInModalButton.addEventListener('click', () => { if (!currentEditingRow) return; const codeToDelete = currentEditingRow.dataset.code; if (confirm(`Are you sure you want to delete ${codeToDelete}?`)) { const index = originalRowsOrder.findIndex(row => row === currentEditingRow); if (index > -1) originalRowsOrder.splice(index, 1); applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.'); editBreakdownModal.style.display = 'none'; } });
         editBreakdownModal.addEventListener('keydown', function(event) { if (event.key === 'Enter') { event.preventDefault(); saveBreakdownButton.click(); } });
