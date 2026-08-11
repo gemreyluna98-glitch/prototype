@@ -1223,22 +1223,27 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 let breakdownHtml;
                 let printFormatted = formatStockingQty(stockingQty);
                 let printRemarks = remarks;
+                let printLocations = includeBldgRackInPrint ? JSON.parse(row.dataset.locations || '[]') : [];
                 if (isSimplifyBreakdownOn()) {
-                    const simplifiedPrint = simplifyBreakdownForDisplay(printFormatted, remarks, []);
+                    const simplifiedPrint = simplifyBreakdownForDisplay(printFormatted, remarks, printLocations);
                     printFormatted = simplifiedPrint.formatted;
                     printRemarks = simplifiedPrint.remarks;
+                    printLocations = simplifiedPrint.locations;
                 }
                 if (includeColors) {
-                    breakdownHtml = formatStockingQtyAndRemarksForDisplay(printFormatted, printRemarks);
+                    breakdownHtml = formatStockingQtyAndRemarksForDisplay(printFormatted, printRemarks, printLocations, isShortenBreakdownOn());
                 } else {
-                    breakdownHtml = printFormatted;
-                }
-
-                let bldgRackCellHtml = '';
-                if (includeBldgRackInPrint) {
-                    const locations = JSON.parse(row.dataset.locations || '[]');
-                    const uniqueLocations = [...new Set(locations.map(l => (l || '').trim()).filter(l => l))];
-                    bldgRackCellHtml = `<td>${uniqueLocations.join(' | ')}</td>`;
+                    const shorten = isShortenBreakdownOn();
+                    breakdownHtml = getBreakdownParts(printFormatted).map((part, index) => {
+                        const trimmedPart = part.trim();
+                        let displayText = trimmedPart;
+                        if (shorten) {
+                            const multMatch = trimmedPart.match(/^([\d.,]+)\s*×/);
+                            if (multMatch) displayText = `(${multMatch[1]})`;
+                        }
+                        const loc = (printLocations[index] || '').trim();
+                        return loc ? `${displayText}${loc}` : displayText;
+                    }).join(' | ');
                 }
 
                 tableRowsHtml += `
@@ -1247,7 +1252,6 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                         ${showMarking ? `<td style="text-align: center; width: 30px; font-weight: bold; color: red;">${isMoved ? '★' : ''}</td>` : ''}
                         <td>${code}</td>
                         <td>${breakdownHtml}</td>
-                        ${bldgRackCellHtml}
                     </tr>
                 `;
 
@@ -1258,14 +1262,13 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                             ${showMarking ? '<td></td>' : ''}
                             <td></td>
                             <td></td>
-                            ${includeBldgRackInPrint ? '<td></td>' : ''}
                         </tr>
                     `;
                 }
             });
 
             const printWindow = window.open('', '_blank');
-            const totalCols = (showMarking ? 4 : 3) + (includeBldgRackInPrint ? 1 : 0);
+            const totalCols = showMarking ? 4 : 3;
             printWindow.document.write(`
                 <html>
                 <head>
@@ -1310,7 +1313,6 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                                 ${showMarking ? '<th style="text-align: center; width: 30px;">M</th>' : ''}
                                 <th>ITEM CODE</th>
                                 <th>ACTUAL COUNT BREAKDOWN</th>
-                                ${includeBldgRackInPrint ? '<th>BLDG/RACK</th>' : ''}
                             </tr>
                         </thead>
                         <tbody>
