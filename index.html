@@ -35,6 +35,11 @@
                 <i class="fas fa-compress-alt"></i>
                 <span>Short Qty</span>
             </label>
+            <label id="simplifyBreakdownToggleWrapper" for="simplifyBreakdownCheckbox" title="Combine same-size breakdown entries (e.g. 17x24000 + 12x24000 becomes (17+12) x24000)" style="display:flex; flex-direction:column; align-items:center; gap:2px; background:var(--green); color:white; border-radius:var(--radius-sm); padding:6px 4px; cursor:pointer; box-shadow: var(--shadow-1); font-size: 0.65em; text-align:center; line-height:1.1;">
+                <input type="checkbox" id="simplifyBreakdownCheckbox" style="width:14px; height:14px; cursor:pointer; margin:0 0 2px 0;">
+                <i class="fas fa-object-group"></i>
+                <span>Simplify</span>
+            </label>
         </div>
         <div id="errorMessage" class="error-message"></div>
         <div class="main-buttons" style="justify-content: center;">
@@ -365,6 +370,7 @@
         dynamicRemarksContainer = document.getElementById('dynamicRemarksContainer'),
         showBuildingRackCheckbox = document.getElementById('showBuildingRackCheckbox'),
         shortenBreakdownCheckbox = document.getElementById('shortenBreakdownCheckbox'),
+        simplifyBreakdownCheckbox = document.getElementById('simplifyBreakdownCheckbox'),
         saveBreakdownButton = document.getElementById('saveBreakdownButton'),
         cancelBreakdownButton = document.getElementById('cancelBreakdownButton'),
         deleteItemInModalButton = document.getElementById('deleteItemInModalButton'),
@@ -940,15 +946,69 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         function convertToExcelFormula(stockingQty) { if (!stockingQty || !stockingQty.trim()) return 0; let formula = String(stockingQty).trim(); formula = formula.replace(/×|x|\*/gi, '*'); formula = formula.replace(/\|/g, '+'); formula = formula.replace(/\s*[lL]\s*/g, '+'); formula = formula.replace(/,/g, ''); formula = formula.replace(/\s+/g, ' '); if (!formula) return 0; return `=${formula}`; }
         function generateBackupFilename() { const dateValue = currentDateInput.value; const [year, month, day] = dateValue.split('-'); const shortYear = year.slice(-2); const formattedDate = `${month}-${day}-${shortYear}`; const timeValue = currentTimeInput.value; let [hours, minutes] = timeValue.split(':'); hours = parseInt(hours, 10); const ampm = hours >= 12 ? 'PM' : 'AM'; hours = hours % 12; hours = hours ? hours : 12; const formattedTime = `${hours}-${minutes}-${ampm}`; const shiftValue = currentShiftSelect.value; const shiftAbbreviation = shiftValue === 'Day Shift' ? 'DS' : 'NS'; return `backup_${formattedDate}_${formattedTime}_${shiftAbbreviation}.xlsx`; }
         function isShortenBreakdownOn() { return shortenBreakdownCheckbox ? shortenBreakdownCheckbox.checked : false; }
+        function isSimplifyBreakdownOn() { return simplifyBreakdownCheckbox ? simplifyBreakdownCheckbox.checked : false; }
+
+        // Groups breakdown parts that share the same multiplicand (e.g. 17×24000 | 12×24000 -> (17 + 12) × 24000).
+        // Display-only: never mutates the stored/original breakdown data or its order.
+        function simplifyBreakdownForDisplay(formattedBreakdownString, remarksArray, locationsArray) {
+            const parts = getBreakdownParts(formattedBreakdownString);
+            remarksArray = remarksArray || [];
+            locationsArray = locationsArray || [];
+            const groups = [];
+            const keyIndexMap = new Map();
+            parts.forEach((part, idx) => {
+                const trimmed = part.trim();
+                const m = trimmed.match(/^([\d.,]+)\s*×\s*([\d.,]+)$/);
+                if (m) {
+                    const multiplier = m[1], multiplicand = m[2];
+                    if (keyIndexMap.has(multiplicand)) {
+                        const g = groups[keyIndexMap.get(multiplicand)];
+                        g.multipliers.push(multiplier);
+                        g.indices.push(idx);
+                    } else {
+                        keyIndexMap.set(multiplicand, groups.length);
+                        groups.push({ type: 'mult', multiplicand, multipliers: [multiplier], indices: [idx] });
+                    }
+                } else {
+                    groups.push({ type: 'plain', raw: trimmed, indices: [idx] });
+                }
+            });
+            const newParts = [], newRemarks = [], newLocations = [];
+            groups.forEach(g => {
+                if (g.type === 'plain') {
+                    newParts.push(g.raw);
+                } else if (g.multipliers.length > 1) {
+                    newParts.push(`(${g.multipliers.join(' + ')}) × ${g.multiplicand}`);
+                } else {
+                    newParts.push(`${g.multipliers[0]}×${g.multiplicand}`);
+                }
+                const firstIdx = g.indices[0];
+                newRemarks.push(remarksArray[firstIdx] || '');
+                newLocations.push(locationsArray[firstIdx] || '');
+            });
+            return { formatted: newParts.join(' | '), remarks: newRemarks, locations: newLocations };
+        }
+
+        // Single entry point used everywhere the on-screen/printed breakdown cell is rendered.
+        // Applies Simplify (grouping) then Short Qty (collapsing) on top of the untouched stored data.
+        function renderBreakdownCellHtml(rawStockingQty, remarksArray, locationsArray) {
+            const formattedBreakdown = formatStockingQty(rawStockingQty);
+            let displayBreakdown = formattedBreakdown, displayRemarks = remarksArray || [], displayLocations = locationsArray || [];
+            if (isSimplifyBreakdownOn()) {
+                const simplified = simplifyBreakdownForDisplay(formattedBreakdown, displayRemarks, displayLocations);
+                displayBreakdown = simplified.formatted; displayRemarks = simplified.remarks; displayLocations = simplified.locations;
+            }
+            return formatStockingQtyAndRemarksForDisplay(displayBreakdown, displayRemarks, displayLocations, isShortenBreakdownOn());
+        }
+
         function refreshAllBreakdownDisplays() {
             originalRowsOrder.forEach(row => {
-                const formatted = formatStockingQty(row.dataset.stockingQty);
                 const remarks = JSON.parse(row.dataset.remarks || '[]');
                 const locations = JSON.parse(row.dataset.locations || '[]');
-                row.cells[1].innerHTML = formatStockingQtyAndRemarksForDisplay(formatted, remarks, locations, isShortenBreakdownOn());
+                row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, remarks, locations);
             });
         }
-        function renderRow(item, shouldSave = true) { const row = inventoryTableBody.insertRow(); originalRowsOrder.push(row); row.dataset.code = item.code; row.dataset.stockingQty = item.stockingQty; row.dataset.remarks = JSON.stringify(item.remarks); row.dataset.locations = JSON.stringify(item.locations || []); const formattedBreakdown = formatStockingQty(item.stockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); const codeCell = row.insertCell(0); codeCell.textContent = item.code; codeCell.dataset.label = "MATERIAL CODE:"; const breakdownCell = row.insertCell(1); breakdownCell.innerHTML = formatStockingQtyAndRemarksForDisplay(formattedBreakdown, item.remarks, item.locations || [], isShortenBreakdownOn()); breakdownCell.classList.add('editable-breakdown'); breakdownCell.dataset.label = "Stocking Qty:"; const totalCell = row.insertCell(2); totalCell.textContent = total.toLocaleString(); totalCell.classList.add('total-per-row', 'column-hidden'); totalCell.dataset.label = "Total per Row:"; const remarksCell = row.insertCell(3); remarksCell.textContent = item.remarks.filter(r => r).join(' | '); remarksCell.classList.add('column-hidden'); remarksCell.dataset.label = "Remarks:"; if (shouldSave) { saveInventoryToLocalStorage(); } }
+        function renderRow(item, shouldSave = true) { const row = inventoryTableBody.insertRow(); originalRowsOrder.push(row); row.dataset.code = item.code; row.dataset.stockingQty = item.stockingQty; row.dataset.remarks = JSON.stringify(item.remarks); row.dataset.locations = JSON.stringify(item.locations || []); const formattedBreakdown = formatStockingQty(item.stockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); const codeCell = row.insertCell(0); codeCell.textContent = item.code; codeCell.dataset.label = "MATERIAL CODE:"; const breakdownCell = row.insertCell(1); breakdownCell.innerHTML = renderBreakdownCellHtml(item.stockingQty, item.remarks, item.locations || []); breakdownCell.classList.add('editable-breakdown'); breakdownCell.dataset.label = "Stocking Qty:"; const totalCell = row.insertCell(2); totalCell.textContent = total.toLocaleString(); totalCell.classList.add('total-per-row', 'column-hidden'); totalCell.dataset.label = "Total per Row:"; const remarksCell = row.insertCell(3); remarksCell.textContent = item.remarks.filter(r => r).join(' | '); remarksCell.classList.add('column-hidden'); remarksCell.dataset.label = "Remarks:"; if (shouldSave) { saveInventoryToLocalStorage(); } }
 
         function highlightMatch(text, term) {
             if (!term) return text;
@@ -1116,10 +1176,17 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 printCount++;
 
                 let breakdownHtml;
+                let printFormatted = formatStockingQty(stockingQty);
+                let printRemarks = remarks;
+                if (isSimplifyBreakdownOn()) {
+                    const simplifiedPrint = simplifyBreakdownForDisplay(printFormatted, remarks, []);
+                    printFormatted = simplifiedPrint.formatted;
+                    printRemarks = simplifiedPrint.remarks;
+                }
                 if (includeColors) {
-                    breakdownHtml = formatStockingQtyAndRemarksForDisplay(formatStockingQty(stockingQty), remarks);
+                    breakdownHtml = formatStockingQtyAndRemarksForDisplay(printFormatted, printRemarks);
                 } else {
-                    breakdownHtml = formatStockingQty(stockingQty);
+                    breakdownHtml = printFormatted;
                 }
 
                 tableRowsHtml += `
@@ -1512,6 +1579,15 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             });
         }
 
+        if (simplifyBreakdownCheckbox) {
+            const savedSimplifyBreakdown = localStorage.getItem('simplifyBreakdown');
+            simplifyBreakdownCheckbox.checked = savedSimplifyBreakdown === 'true';
+            simplifyBreakdownCheckbox.addEventListener('change', () => {
+                localStorage.setItem('simplifyBreakdown', simplifyBreakdownCheckbox.checked);
+                refreshAllBreakdownDisplays();
+            });
+        }
+
         function getWithdrawableStock(row) { const stockingQty = row.dataset.stockingQty; const remarks = JSON.parse(row.dataset.remarks || '[]'); const parts = getBreakdownParts(formatStockingQty(stockingQty)); let total = 0; parts.forEach((part, index) => { const remark = (remarks[index] || '').toLowerCase(); if (!remark.startsWith('hold')) { total += calculateSingleStockingQtyTotal(part); } }); return total; };
 
         function performWithdrawal(materialCode, withdrawAmount) {
@@ -1663,7 +1739,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
             const finalBreakdown = formatStockingQty(targetRow.dataset.stockingQty);
             const finalTotal = calculateSingleStockingQtyTotal(finalBreakdown);
-            targetRow.cells[1].innerHTML = formatStockingQtyAndRemarksForDisplay(finalBreakdown, JSON.parse(targetRow.dataset.remarks), JSON.parse(targetRow.dataset.locations), isShortenBreakdownOn());
+            targetRow.cells[1].innerHTML = renderBreakdownCellHtml(targetRow.dataset.stockingQty, JSON.parse(targetRow.dataset.remarks), JSON.parse(targetRow.dataset.locations));
             targetRow.cells[2].textContent = finalTotal.toLocaleString();
             targetRow.cells[3].textContent = JSON.parse(targetRow.dataset.remarks).filter(r => r).join(' | ');
 
@@ -2043,7 +2119,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 const finalFormatted = formatStockingQty(combined);
                 const total = calculateSingleStockingQtyTotal(finalFormatted);
 
-                row.cells[1].innerHTML = formatStockingQtyAndRemarksForDisplay(finalFormatted, finalRemarks, JSON.parse(row.dataset.locations || '[]'), isShortenBreakdownOn());
+                row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, finalRemarks, JSON.parse(row.dataset.locations || '[]'));
                 row.cells[2].textContent = total.toLocaleString();
                 row.cells[3].textContent = finalRemarks.filter(r => r).join(' | ');
 
@@ -2137,7 +2213,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         confirmBulkClearButton.addEventListener('click', () => { const selectedCheckboxes = Array.from(bulkClearList.querySelectorAll('input[type="checkbox"]:checked')); if (selectedCheckboxes.length === 0) { alert('Please select at least one item to clear.'); return; } const codesToClear = selectedCheckboxes.map(cb => cb.value); if (confirm(`Are you sure you want to clear the quantity for ${codesToClear.length} selected item(s)?`)) { codesToClear.forEach(code => { const targetRow = originalRowsOrder.find(row => row.dataset.code === code); if (targetRow) { targetRow.dataset.stockingQty = ''; targetRow.dataset.remarks = '[]'; targetRow.dataset.locations = '[]'; targetRow.cells[1].innerHTML = ''; targetRow.cells[2].textContent = '0'; targetRow.cells[3].textContent = ''; } }); saveInventoryToLocalStorage(); logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : '')); applyFiltersAndSort(); alert(`Successfully cleared quantities for ${codesToClear.length} item(s).`); bulkClearQtyModal.style.display = 'none'; } });
         confirmImportButton.addEventListener('click', () => { if (!confirm("Importing new data will overwrite the current inventory. Do you want to continue?")) { return; } const sheetName = excelSheetSelect.value; const worksheet = loadedWorkbook.Sheets[sheetName]; const qtyColIndex = stockingQtyDateSelectModal.value; const dataForHeaders = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); const codeHeaderRow = dataForHeaders[4] || []; const codeColIndex = codeHeaderRow.findIndex(h => typeof h === 'string' && h.trim().toUpperCase() === 'MATERIAL CODE'); if (codeColIndex === -1) { importErrorMessageDiv.textContent = `"MATERIAL CODE" column not found on Row 5.`; return; } inventoryTableBody.innerHTML = ''; originalRowsOrder = []; const range = XLSX.utils.decode_range(worksheet['!ref']); let importedCount = 0; for (let R = DATA_START_ROW_EXCEL_INDEX - 1; R <= range.e.r; ++R) { const codeCell = worksheet[XLSX.utils.encode_cell({c: codeColIndex, r: R})]; if (codeCell && codeCell.v) { importedCount++; const code = codeCell.w || codeCell.v.toString(); let stockingQty = ''; if (qtyColIndex) { const qtyCell = worksheet[XLSX.utils.encode_cell({c: parseInt(qtyColIndex), r: R})]; if (qtyCell) stockingQty = qtyCell.f || qtyCell.w || String(qtyCell.v) || ''; } renderRow({ code: code.trim(), stockingQty: stockingQty.toString(), remarks: Array(getBreakdownParts(formatStockingQty(stockingQty)).length).fill('') }, false); } } applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('IMPORT', '-', `Imported ${importedCount} items from sheet: ${sheetName}.`); importDataModal.style.display = 'none'; });
         editBreakdownInput.addEventListener('input', function() { const parts = getBreakdownParts(formatStockingQty(this.value)); const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value); const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value); generateRemarksInputs(parts.length, currentRemarks, currentLocations); });
-        saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = formatStockingQtyAndRemarksForDisplay(formattedBreakdown, newRemarks, newLocations, isShortenBreakdownOn()); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryToLocalStorage(); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); editBreakdownModal.style.display = 'none'; });
+        saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryToLocalStorage(); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); editBreakdownModal.style.display = 'none'; });
         deleteItemInModalButton.addEventListener('click', () => { if (!currentEditingRow) return; const codeToDelete = currentEditingRow.dataset.code; if (confirm(`Are you sure you want to delete ${codeToDelete}?`)) { const index = originalRowsOrder.findIndex(row => row === currentEditingRow); if (index > -1) originalRowsOrder.splice(index, 1); applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.'); editBreakdownModal.style.display = 'none'; } });
         editBreakdownModal.addEventListener('keydown', function(event) { if (event.key === 'Enter') { event.preventDefault(); saveBreakdownButton.click(); } });
 
