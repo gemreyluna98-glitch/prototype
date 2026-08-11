@@ -279,6 +279,10 @@
                         <input type="checkbox" id="includePrintColors" style="width: 18px; height: 18px; cursor: pointer;">
                         Include Colors in Printout
                     </label>
+                    <label style="cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; font-size: 0.95em;">
+                        <input type="checkbox" id="includeBldgRackPrintCheckbox" style="width: 18px; height: 18px; cursor: pointer;">
+                        <i class="fas fa-warehouse" style="color: var(--steel-dark);"></i> Include Bldg/Rack in Printout
+                    </label>
                 </div>
                 <small style="color: #6b7280; text-align: center;">Items with transactions between these dates will be marked.</small>
             </div>
@@ -408,6 +412,7 @@
         editBreakdownInput = document.getElementById('editBreakdownInput'),
         dynamicRemarksContainer = document.getElementById('dynamicRemarksContainer'),
         showBuildingRackCheckbox = document.getElementById('showBuildingRackCheckbox'),
+        includeBldgRackPrintCheckbox = document.getElementById('includeBldgRackPrintCheckbox'),
         shortenBreakdownCheckbox = document.getElementById('shortenBreakdownCheckbox'),
         simplifyBreakdownCheckbox = document.getElementById('simplifyBreakdownCheckbox'),
         saveBreakdownButton = document.getElementById('saveBreakdownButton'),
@@ -1160,6 +1165,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             const formattedTime = `${displayHours}:${minutes}${ampm_str}`;
 
             const includeColors = document.getElementById('includePrintColors').checked;
+            const includeBldgRackInPrint = includeBldgRackPrintCheckbox ? includeBldgRackPrintCheckbox.checked : false;
             const isMainMovementActive = enableMovementFilter.checked;
 
             let showMarking = document.getElementById('enableMovementMarking').checked;
@@ -1228,12 +1234,20 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                     breakdownHtml = printFormatted;
                 }
 
+                let bldgRackCellHtml = '';
+                if (includeBldgRackInPrint) {
+                    const locations = JSON.parse(row.dataset.locations || '[]');
+                    const uniqueLocations = [...new Set(locations.map(l => (l || '').trim()).filter(l => l))];
+                    bldgRackCellHtml = `<td>${uniqueLocations.join(' | ')}</td>`;
+                }
+
                 tableRowsHtml += `
                     <tr>
                         <td style="text-align: center; width: 30px;">${printCount}</td>
                         ${showMarking ? `<td style="text-align: center; width: 30px; font-weight: bold; color: red;">${isMoved ? '★' : ''}</td>` : ''}
                         <td>${code}</td>
                         <td>${breakdownHtml}</td>
+                        ${bldgRackCellHtml}
                     </tr>
                 `;
 
@@ -1244,13 +1258,14 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                             ${showMarking ? '<td></td>' : ''}
                             <td></td>
                             <td></td>
+                            ${includeBldgRackInPrint ? '<td></td>' : ''}
                         </tr>
                     `;
                 }
             });
 
             const printWindow = window.open('', '_blank');
-            const totalCols = showMarking ? 4 : 3;
+            const totalCols = (showMarking ? 4 : 3) + (includeBldgRackInPrint ? 1 : 0);
             printWindow.document.write(`
                 <html>
                 <head>
@@ -1295,6 +1310,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                                 ${showMarking ? '<th style="text-align: center; width: 30px;">M</th>' : ''}
                                 <th>ITEM CODE</th>
                                 <th>ACTUAL COUNT BREAKDOWN</th>
+                                ${includeBldgRackInPrint ? '<th>BLDG/RACK</th>' : ''}
                             </tr>
                         </thead>
                         <tbody>
@@ -1606,6 +1622,14 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             showBuildingRackCheckbox.addEventListener('change', () => {
                 localStorage.setItem('showBuildingRack', showBuildingRackCheckbox.checked);
                 applyBuildingRackVisibility();
+            });
+        }
+
+        if (includeBldgRackPrintCheckbox) {
+            const savedIncludeBldgRackPrint = localStorage.getItem('includeBldgRackPrint');
+            includeBldgRackPrintCheckbox.checked = savedIncludeBldgRackPrint === 'true';
+            includeBldgRackPrintCheckbox.addEventListener('change', () => {
+                localStorage.setItem('includeBldgRackPrint', includeBldgRackPrintCheckbox.checked);
             });
         }
 
