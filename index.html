@@ -19,6 +19,7 @@
             <div class="info-item"> <label for="currentDate">Date:</label> <input type="date" id="currentDate"> </div>
             <div class="info-item"> <label for="currentTime">Time:</label> <input type="time" id="currentTime"> </div>
             <div class="info-item"> <label for="currentShift">Shift:</label> <select id="currentShift"> <option>Day Shift</option> <option>Night Shift</option> </select> </div>
+            <div class="info-item"> <label for="showBuildingRackCheckbox" style="display:flex; align-items:center; gap:5px; cursor:pointer;"> <input type="checkbox" id="showBuildingRackCheckbox" checked style="width:auto; cursor:pointer;"> <i class="fas fa-warehouse"></i> Show Building/Rack </label> </div>
         </div>
         <hr>
         <div class="floating-action-buttons" style="position: fixed; right: 20px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 10px; z-index: 1000;">
@@ -353,6 +354,7 @@
         editBreakdownModal = document.getElementById('editBreakdownModal'),
         editBreakdownInput = document.getElementById('editBreakdownInput'),
         dynamicRemarksContainer = document.getElementById('dynamicRemarksContainer'),
+        showBuildingRackCheckbox = document.getElementById('showBuildingRackCheckbox'),
         saveBreakdownButton = document.getElementById('saveBreakdownButton'),
         cancelBreakdownButton = document.getElementById('cancelBreakdownButton'),
         deleteItemInModalButton = document.getElementById('deleteItemInModalButton'),
@@ -1336,7 +1338,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 dynamicRemarksContainer.appendChild(inputGroup);
 
                 const locGroup = document.createElement('div');
-                locGroup.className = 'item-input';
+                locGroup.className = 'item-input building-rack-group';
                 const locLabel = document.createElement('label');
                 locLabel.innerHTML = `<i class="fas fa-warehouse"></i> Building/Rack for Part ${i + 1}:`;
                 const locInput = document.createElement('input');
@@ -1463,7 +1465,25 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                     }
                 });
             }
+            applyBuildingRackVisibility();
         };
+
+        function applyBuildingRackVisibility() {
+            const show = showBuildingRackCheckbox ? showBuildingRackCheckbox.checked : true;
+            document.querySelectorAll('.building-rack-group').forEach(el => {
+                el.style.display = show ? '' : 'none';
+            });
+        }
+
+        if (showBuildingRackCheckbox) {
+            const savedShowBuildingRack = localStorage.getItem('showBuildingRack');
+            showBuildingRackCheckbox.checked = savedShowBuildingRack === null ? true : savedShowBuildingRack === 'true';
+            showBuildingRackCheckbox.addEventListener('change', () => {
+                localStorage.setItem('showBuildingRack', showBuildingRackCheckbox.checked);
+                applyBuildingRackVisibility();
+            });
+        }
+
         function getWithdrawableStock(row) { const stockingQty = row.dataset.stockingQty; const remarks = JSON.parse(row.dataset.remarks || '[]'); const parts = getBreakdownParts(formatStockingQty(stockingQty)); let total = 0; parts.forEach((part, index) => { const remark = (remarks[index] || '').toLowerCase(); if (!remark.startsWith('hold')) { total += calculateSingleStockingQtyTotal(part); } }); return total; };
 
         function performWithdrawal(materialCode, withdrawAmount) {
