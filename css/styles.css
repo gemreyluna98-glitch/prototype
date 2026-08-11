@@ -144,7 +144,7 @@ h2 {
 }
 
 /* ==========================================================================
-   Section headers / buttons
+   Section headers / buttons & Symmetrical Floating Action Docks
    ========================================================================== */
 .header-with-add-button { display: flex; justify-content: center; align-items: center; position: relative; margin-bottom: 15px; }
 .header-with-add-button h2 { margin: 0; font-size: 1.5em; }
@@ -159,18 +159,188 @@ h2 {
 .add-item-icon-btn i { font-size: 0.7em; }
 #fileOpsButton { background-color: var(--steel); }
 
-.main-buttons { display: flex; justify-content: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
-.main-buttons button {
-  background-color: var(--amber); color: white;
-  padding: 10px 18px; border: none; border-radius: var(--radius);
-  cursor: pointer; font-size: 0.88em; font-weight: 600;
-  letter-spacing: 0.01em; font-family: var(--font-body);
-  display: inline-flex; align-items: center; gap: 8px;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
-  box-shadow: var(--shadow-1);
+/* Left and Right Floating Docks - Symmetrical Glassmorphism Capsule Layout */
+.left-floating-dock, .right-floating-dock {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px;
+  background: rgba(16, 24, 40, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 30px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  z-index: 1000;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+  width: 62px;
+  box-sizing: border-box;
 }
-.main-buttons button:hover { filter: brightness(0.92); transform: translateY(-1px); box-shadow: var(--shadow-2); }
-.main-buttons button:active { transform: translateY(0); }
+
+.left-floating-dock {
+  left: 18px;
+  align-items: flex-start;
+}
+
+.left-floating-dock:hover {
+  width: 195px;
+}
+
+.right-floating-dock {
+  right: 18px;
+  align-items: flex-end;
+}
+
+.right-floating-dock:hover {
+  width: 195px;
+}
+
+/* Individual Floating Action Items with Horizontal Expand Hover Effect */
+.floating-action-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: #FFFFFF;
+  font-family: var(--font-body);
+  font-size: 0.95em;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  white-space: nowrap;
+  transition: width 0.35s cubic-bezier(0.25, 1, 0.5, 1), 
+              border-radius 0.35s cubic-bezier(0.25, 1, 0.5, 1), 
+              background-color 0.25s ease, 
+              box-shadow 0.2s ease, 
+              transform 0.15s ease;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.left-floating-dock .floating-action-item {
+  justify-content: flex-start;
+}
+
+.right-floating-dock .floating-action-item {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+}
+
+/* Base icon styling inside the dock items */
+.floating-action-item i {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  font-size: 1.15em;
+  text-align: center;
+}
+
+/* Text label initially hidden, styled for smooth appearance */
+.floating-action-item .action-text {
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  transition: opacity 0.25s ease, max-width 0.3s cubic-bezier(0.25, 1, 0.5, 1), transform 0.25s ease;
+  font-size: 0.88em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.left-floating-dock .floating-action-item .action-text {
+  transform: translateX(-10px);
+  padding-left: 4px;
+}
+
+.right-floating-dock .floating-action-item .action-text {
+  transform: translateX(10px);
+  padding-right: 4px;
+}
+
+/* Hover effects: Horizontal extension when individual item OR parent dock is hovered */
+.left-floating-dock .floating-action-item:hover,
+.left-floating-dock:hover .floating-action-item {
+  width: 175px;
+  border-radius: var(--radius);
+}
+
+.right-floating-dock .floating-action-item:hover,
+.right-floating-dock:hover .floating-action-item {
+  width: 175px;
+  border-radius: var(--radius);
+}
+
+.left-floating-dock .floating-action-item:hover,
+.right-floating-dock .floating-action-item:hover {
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
+  transform: translateY(-2px);
+}
+
+/* Show text when hovered */
+.left-floating-dock .floating-action-item:hover .action-text,
+.left-floating-dock:hover .floating-action-item .action-text,
+.right-floating-dock .floating-action-item:hover .action-text,
+.right-floating-dock:hover .floating-action-item .action-text {
+  opacity: 1;
+  max-width: 120px;
+  transform: translateX(0);
+}
+
+/* Color schemes for dock actions to keep beautiful vibrancy */
+.bg-green { background-color: var(--green); }
+.bg-green:hover { background-color: var(--green-dark); }
+.bg-amber { background-color: var(--amber); }
+.bg-amber:hover { background-color: var(--amber-dark); }
+.bg-violet { background-color: var(--violet); }
+.bg-violet:hover { background-color: #4933a3; }
+.bg-blue { background-color: var(--steel); }
+.bg-blue:hover { background-color: var(--steel-dark); }
+.bg-red { background-color: var(--red); }
+.bg-red:hover { background-color: var(--red-dark); }
+.bg-grey-mid { background-color: var(--grey-mid); }
+.bg-grey-mid:hover { background-color: #4f5766; }
+.bg-steel { background-color: var(--steel); }
+.bg-steel:hover { background-color: var(--steel-dark); }
+.bg-steel-dark { background-color: var(--steel-dark); }
+.bg-steel-dark:hover { background-color: #102d4d; }
+.bg-violet-dark { background-color: var(--violet); }
+.bg-violet-dark:hover { background-color: #4933a3; }
+.bg-green-dark { background-color: var(--green); }
+.bg-green-dark:hover { background-color: var(--green-dark); }
+
+/* Glowing active effect when "Mark Movement" is checked */
+#enableMovementFilter:checked ~ .star-icon {
+  color: #f1c40f !important;
+  text-shadow: 0 0 10px rgba(241, 196, 15, 0.8);
+  animation: pulse-gold 2s infinite alternate;
+}
+
+#enableMovementFilter:checked + .star-icon {
+  color: #f1c40f !important;
+  text-shadow: 0 0 10px rgba(241, 196, 15, 0.8);
+}
+
+@keyframes pulse-gold {
+  0% { transform: scale(1); filter: drop-shadow(0 0 2px rgba(241, 196, 15, 0.5)); }
+  100% { transform: scale(1.1); filter: drop-shadow(0 0 8px rgba(241, 196, 15, 0.9)); }
+}
+
+/* Mobile responsive layout placeholder */
+.mobile-action-buttons {
+  display: none;
+}
 
 /* ==========================================================================
    Table — dense manifest ledger
@@ -364,15 +534,59 @@ body.dark-mode .bulk-del-item input { background-color: var(--card); color: var(
 body.dark-mode .bulk-del-item input::placeholder { color: var(--ink-soft); }
 
 /* ==========================================================================
-   Responsive
+   Responsive & Fallbacks
    ========================================================================== */
 @media (max-width: 768px) {
   body { padding: 12px 8px 40px; }
   .container { padding: 16px; }
-  .info-bar, .main-buttons, .filter-section { flex-direction: column; align-items: stretch; }
+  
+  /* Hide Symmetrical Floating docks on small screens to save valuable viewport space */
+  .left-floating-dock, .right-floating-dock {
+    display: none !important;
+  }
+
+  /* Display natural mobile-only grid layout inside container */
+  .mobile-action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 15px;
+    width: 100%;
+  }
+
+  .mobile-action-buttons button {
+    flex: 1;
+    min-width: 130px;
+    color: white;
+    padding: 11px 16px;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 0.88em;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: var(--shadow-1);
+    box-sizing: border-box;
+  }
+
+  .mobile-action-buttons button:active {
+    transform: translateY(1px);
+  }
+
+  /* Legacy movement filter wrapper displayed nicely on mobile inside filters */
+  #legacyMovementFilterWrapper {
+    display: flex !important;
+  }
+
+  .info-bar, .filter-section { flex-direction: column; align-items: stretch; }
   .info-bar::before, .info-bar::after { display: none; }
   .info-item { justify-content: space-between; width: 100%; margin: 4px 0; }
-  .main-buttons button, .filter-group { width: 100%; margin: 4px 0; box-sizing: border-box; justify-content: center; }
+  .filter-group { width: 100%; margin: 4px 0; box-sizing: border-box; justify-content: center; }
   .filter-group { flex-direction: column; align-items: flex-start; gap: 5px; }
   .filter-section select, .filter-section input[type="text"] { width: 100%; box-sizing: border-box; }
   .add-item-icon-btn { right: 10px; }
@@ -383,6 +597,13 @@ body.dark-mode .bulk-del-item input::placeholder { color: var(--ink-soft); }
   tr { border: 1px solid var(--border-soft); border-radius: var(--radius-sm); margin-bottom: 10px; }
   td { border: none; border-bottom: 1px solid var(--border-soft); position: relative; padding-left: 50%; text-align: right; white-space: normal; }
   td:before { position: absolute; top: 9px; left: 10px; width: 45%; padding-right: 10px; white-space: nowrap; text-align: left; font-weight: bold; content: attr(data-label); font-family: var(--font-mono); font-size: 0.85em; color: var(--ink-soft); }
+}
+
+/* On desktop, hide legacy movement checkbox to avoid duplicates, as dock is visible */
+@media (min-width: 769px) {
+  #legacyMovementFilterWrapper {
+    display: none !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -21,32 +21,67 @@
             <div class="info-item"> <label for="currentShift">Shift:</label> <select id="currentShift"> <option>Day Shift</option> <option>Night Shift</option> </select> </div>
         </div>
         <hr>
-        <div class="floating-action-buttons" style="position: fixed; right: 20px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 10px; z-index: 1000;">
-            <button id="lockSystemButton" class="add-item-icon-btn" title="System Locked" style="background-color: var(--red);"><i class="fas fa-lock"></i></button>
-            <button id="darkModeToggle" class="add-item-icon-btn" title="Toggle Dark Mode" style="background-color: var(--grey-mid);"><i class="fas fa-moon"></i></button>
-            <button id="fileOpsButton" class="add-item-icon-btn" title="File Operations"><i class="fas fa-folder-open"></i></button>
-            <label id="buildingRackToggleWrapper" for="showBuildingRackCheckbox" title="Show Building/Rack" style="display:flex; flex-direction:column; align-items:center; gap:2px; background:var(--steel-dark); color:white; border-radius:var(--radius-sm); padding:6px 4px; cursor:pointer; box-shadow: var(--shadow-1); font-size: 0.65em; text-align:center; line-height:1.1;">
-                <input type="checkbox" id="showBuildingRackCheckbox" checked style="width:14px; height:14px; cursor:pointer; margin:0 0 2px 0;">
+        <!-- Left Side Floating Action Dock (Bulk & Tracker Actions) -->
+        <div class="left-floating-dock">
+            <button id="openBulkDeliveriesModalButton" class="floating-action-item bg-green" title="Bulk Deliveries">
+                <i class="fas fa-shipping-fast"></i>
+                <span class="action-text">Bulk Deliveries</span>
+            </button>
+            <button id="openBulkWithdrawModalButton" class="floating-action-item bg-amber" title="Bulk Withdraw">
+                <i class="fas fa-dolly-flatbed"></i>
+                <span class="action-text">Bulk Withdraw</span>
+            </button>
+            <button id="openVarianceModalButton" class="floating-action-item bg-violet" title="Variance Tracker">
+                <i class="fas fa-balance-scale"></i>
+                <span class="action-text">Variance Tracker</span>
+            </button>
+            <label class="floating-action-item bg-blue" title="Mark items with movement" id="movementToggleWrapper">
+                <input type="checkbox" id="enableMovementFilter" style="display: none;">
+                <i class="fas fa-star star-icon"></i>
+                <span class="action-text">Mark Movement</span>
+            </label>
+        </div>
+
+        <!-- Right Side Floating Action Dock (Settings & Views) -->
+        <div class="right-floating-dock">
+            <button id="lockSystemButton" class="floating-action-item bg-red" title="System Locked">
+                <i class="fas fa-lock"></i>
+                <span class="action-text">Lock System</span>
+            </button>
+            <button id="darkModeToggle" class="floating-action-item bg-grey-mid" title="Toggle Dark Mode">
+                <i class="fas fa-moon"></i>
+                <span class="action-text">Dark Mode</span>
+            </button>
+            <button id="fileOpsButton" class="floating-action-item bg-steel" title="File Operations">
+                <i class="fas fa-folder-open"></i>
+                <span class="action-text">File Operations</span>
+            </button>
+            <label id="buildingRackToggleWrapper" for="showBuildingRackCheckbox" class="floating-action-item bg-steel-dark" title="Show Building/Rack">
+                <input type="checkbox" id="showBuildingRackCheckbox" checked style="display: none;">
                 <i class="fas fa-warehouse"></i>
-                <span>Bldg/Rack</span>
+                <span class="action-text">Bldg/Rack</span>
             </label>
-            <label id="shortenBreakdownToggleWrapper" for="shortenBreakdownCheckbox" title="Shorten breakdown display (hover a value to see the full breakdown)" style="display:flex; flex-direction:column; align-items:center; gap:2px; background:var(--violet); color:white; border-radius:var(--radius-sm); padding:6px 4px; cursor:pointer; box-shadow: var(--shadow-1); font-size: 0.65em; text-align:center; line-height:1.1;">
-                <input type="checkbox" id="shortenBreakdownCheckbox" style="width:14px; height:14px; cursor:pointer; margin:0 0 2px 0;">
+            <label id="shortenBreakdownToggleWrapper" for="shortenBreakdownCheckbox" class="floating-action-item bg-violet-dark" title="Shorten breakdown display (hover a value to see the full breakdown)">
+                <input type="checkbox" id="shortenBreakdownCheckbox" style="display: none;">
                 <i class="fas fa-compress-alt"></i>
-                <span>Short Qty</span>
+                <span class="action-text">Short Qty</span>
             </label>
-            <label id="simplifyBreakdownToggleWrapper" for="simplifyBreakdownCheckbox" title="Combine same-size breakdown entries (e.g. 17x24000 + 12x24000 becomes (17+12) x24000)" style="display:flex; flex-direction:column; align-items:center; gap:2px; background:var(--green); color:white; border-radius:var(--radius-sm); padding:6px 4px; cursor:pointer; box-shadow: var(--shadow-1); font-size: 0.65em; text-align:center; line-height:1.1;">
-                <input type="checkbox" id="simplifyBreakdownCheckbox" style="width:14px; height:14px; cursor:pointer; margin:0 0 2px 0;">
+            <label id="simplifyBreakdownToggleWrapper" for="simplifyBreakdownCheckbox" class="floating-action-item bg-green-dark" title="Combine same-size breakdown entries">
+                <input type="checkbox" id="simplifyBreakdownCheckbox" style="display: none;">
                 <i class="fas fa-object-group"></i>
-                <span>Simplify</span>
+                <span class="action-text">Simplify</span>
             </label>
         </div>
+
         <div id="errorMessage" class="error-message"></div>
-        <div class="main-buttons" style="justify-content: center;">
-            <button id="openBulkDeliveriesModalButton" style="background-color: var(--green);"><i class="fas fa-shipping-fast"></i> Bulk Deliveries</button>
-            <button id="openBulkWithdrawModalButton" style="background-color: var(--amber);"><i class="fas fa-dolly-flatbed"></i> Bulk Withdraw</button>
-            <button id="openVarianceModalButton" style="background-color: var(--violet);"><i class="fas fa-balance-scale"></i> Variance Tracker</button>
+
+        <!-- Mobile-Only inline buttons wrapper to keep usability perfect on small screens -->
+        <div class="mobile-action-buttons">
+            <button id="mobileBulkDeliveriesBtn" onclick="document.getElementById('openBulkDeliveriesModalButton').click();" style="background-color: var(--green);"><i class="fas fa-shipping-fast"></i> Bulk Deliveries</button>
+            <button id="mobileBulkWithdrawBtn" onclick="document.getElementById('openBulkWithdrawModalButton').click();" style="background-color: var(--amber);"><i class="fas fa-dolly-flatbed"></i> Bulk Withdraw</button>
+            <button id="mobileVarianceBtn" onclick="document.getElementById('openVarianceModalButton').click();" style="background-color: var(--violet);"><i class="fas fa-balance-scale"></i> Variance Tracker</button>
         </div>
+        
         <hr>
         <div class="filter-section">
             <div class="filter-header" style="margin-bottom: 10px;"><i class="fas fa-filter"></i> Filter & <i class="fas fa-sort-alpha-down"></i> Sort Inventory</div>
@@ -78,9 +113,10 @@
                     <label for="remarksFilter"><i class="fas fa-comment"></i> Remarks:</label>
                     <select id="remarksFilter" style="padding: 6px; font-size: 0.9em;"> <option value="ALL">All</option><option value="HOLD">Hold</option><option value="APPROVED">Approved</option><option value="FIRSTOUT_OLD">First Out/Old</option><option value="NO_REMARK">No Remark</option><option value="OTHER_REMARKS">Other</option> </select>
                 </div>
-                <div class="filter-group" style="width: 100%; justify-content: center;">
+                <!-- Keep hidden input on desktop inside secondary filters so existing queries/logic won't break if they depend on it existing there, but since we have it globally mapped on dock, we just style it cleanly -->
+                <div class="filter-group" style="width: 100%; justify-content: center;" id="legacyMovementFilterWrapper">
                     <label style="cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; font-size: 0.9em;">
-                        <input type="checkbox" id="enableMovementFilter" style="width: 16px; height: 16px; cursor: pointer;">
+                        <input type="checkbox" id="enableMovementFilterLegacy" style="width: 16px; height: 16px; cursor: pointer;">
                         Mark items with movement (★)
                     </label>
                 </div>
@@ -2139,6 +2175,21 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         });
 
         [itemTypeFilter, remarksFilter, dataPresenceFilter, materialCodeSort, searchBar, moveDateFrom, moveTimeFrom, moveDateTo, moveTimeTo, movementMode].forEach(el => el.addEventListener('input', applyFiltersAndSort));
+
+        // Connect legacy and modern movement checkboxes so they mirror each other seamlessly
+        const legacyMovement = document.getElementById('enableMovementFilterLegacy');
+        const modernMovement = document.getElementById('enableMovementFilter');
+        if (legacyMovement && modernMovement) {
+            legacyMovement.addEventListener('change', () => {
+                modernMovement.checked = legacyMovement.checked;
+                // Dispatch change event to trigger existing listeners on enableMovementFilter
+                modernMovement.dispatchEvent(new Event('change'));
+            });
+            modernMovement.addEventListener('change', () => {
+                legacyMovement.checked = modernMovement.checked;
+                // Since modern movement has its own change listener bound next, let it execute naturally
+            });
+        }
 
         toggleMoreFiltersBtn.addEventListener('click', () => {
             if (secondaryFilters.style.display === 'none') {
