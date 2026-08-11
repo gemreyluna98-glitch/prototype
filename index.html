@@ -19,13 +19,17 @@
             <div class="info-item"> <label for="currentDate">Date:</label> <input type="date" id="currentDate"> </div>
             <div class="info-item"> <label for="currentTime">Time:</label> <input type="time" id="currentTime"> </div>
             <div class="info-item"> <label for="currentShift">Shift:</label> <select id="currentShift"> <option>Day Shift</option> <option>Night Shift</option> </select> </div>
-            <div class="info-item"> <label for="showBuildingRackCheckbox" style="display:flex; align-items:center; gap:5px; cursor:pointer;"> <input type="checkbox" id="showBuildingRackCheckbox" checked style="width:auto; cursor:pointer;"> <i class="fas fa-warehouse"></i> Show Building/Rack </label> </div>
         </div>
         <hr>
         <div class="floating-action-buttons" style="position: fixed; right: 20px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 10px; z-index: 1000;">
             <button id="lockSystemButton" class="add-item-icon-btn" title="System Locked" style="background-color: #dc3545;"><i class="fas fa-lock"></i></button>
             <button id="darkModeToggle" class="add-item-icon-btn" title="Toggle Dark Mode" style="background-color: #6c757d;"><i class="fas fa-moon"></i></button>
             <button id="fileOpsButton" class="add-item-icon-btn" title="File Operations"><i class="fas fa-folder-open"></i></button>
+            <label id="buildingRackToggleWrapper" for="showBuildingRackCheckbox" title="Show Building/Rack" style="display:flex; flex-direction:column; align-items:center; gap:2px; background:#17a2b8; color:white; border-radius:8px; padding:6px 4px; cursor:pointer; box-shadow: var(--shadow-1); font-size: 0.65em; text-align:center; line-height:1.1;">
+                <input type="checkbox" id="showBuildingRackCheckbox" checked style="width:14px; height:14px; cursor:pointer; margin:0 0 2px 0;">
+                <i class="fas fa-warehouse"></i>
+                <span>Bldg/Rack</span>
+            </label>
         </div>
         <div id="errorMessage" class="error-message"></div>
         <div class="main-buttons" style="justify-content: center;">
