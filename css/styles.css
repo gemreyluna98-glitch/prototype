@@ -78,17 +78,31 @@ body {
 }
 
 .container {
-  background: var(--card);
+  background: transparent;
   padding: 24px;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
   border: 1px solid var(--glass-border);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   max-width: 960px;
   margin: auto;
   position: relative;
   z-index: 1;
+}
+
+/* Blur lives on a pseudo-element instead of .container itself.
+   Applying backdrop-filter directly to .container would make it a
+   containing block for its position:fixed descendants (the floating
+   docks), breaking their scroll-following behavior. This keeps the
+   glass look without that side effect. */
+.container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: inherit;
+  z-index: -1;
 }
 
 h1 {
@@ -807,12 +821,12 @@ body.dark-mode .bulk-del-item input::placeholder { color: var(--ink-soft); }
    Glass + Glow theme additions
    ========================================================================== */
 @media (max-width: 768px) {
-  .container, .modal-content, .info-bar, .filter-section, .report-stat-card {
+  .container::before, .modal-content, .info-bar, .filter-section, .report-stat-card {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background-color: var(--paper);
   }
-  body.dark-mode .container, body.dark-mode .modal-content,
+  body.dark-mode .container::before, body.dark-mode .modal-content,
   body.dark-mode .info-bar, body.dark-mode .filter-section,
   body.dark-mode .report-stat-card {
     background-color: #10131a;
