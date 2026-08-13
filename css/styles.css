@@ -1062,3 +1062,51 @@ select.custom-select-native { display: none !important; }
 }
 .table-empty-state i { font-size: 1.8em; color: var(--amber-glow); }
 .table-empty-state span { font-size: 0.95em; }
+
+/* ==========================================================================
+   Transaction History — action badges + expandable before/after detail
+   ========================================================================== */
+.history-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.history-badge-red { background: rgba(179, 38, 30, 0.15); color: var(--red); }
+body.dark-mode .history-badge-red { background: rgba(220, 90, 80, 0.18); color: #e8887e; }
+.history-badge-green { background: rgba(21, 127, 92, 0.15); color: var(--green); }
+body.dark-mode .history-badge-green { background: rgba(60, 180, 140, 0.18); color: #6fd6ac; }
+.history-badge-amber { background: rgba(184, 121, 30, 0.15); color: var(--amber); }
+body.dark-mode .history-badge-amber { background: rgba(232, 160, 76, 0.18); color: var(--amber); }
+.history-badge-blue { background: rgba(30, 75, 122, 0.15); color: var(--steel); }
+body.dark-mode .history-badge-blue { background: rgba(90, 150, 210, 0.18); color: #8fb8e0; }
+
+#historyTableBody .history-row { cursor: pointer; }
+#historyTableBody .history-row:hover { background-color: rgba(127, 137, 156, 0.09); }
+body.dark-mode #historyTableBody .history-row:hover { background-color: rgba(255, 255, 255, 0.05); }
+#historyTableBody .history-row.is-expanded { background-color: rgba(184, 121, 30, 0.06); }
+
+.history-detail-row-wrap td {
+  background: rgba(127, 137, 156, 0.04);
+  padding: 12px 20px;
+  white-space: normal;
+}
+body.dark-mode .history-detail-row-wrap td { background: rgba(255, 255, 255, 0.02); }
+.history-detail { display: flex; flex-direction: column; gap: 6px; }
+.history-detail-row-item {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.history-detail-label { color: var(--ink-soft); font-weight: 600; min-width: 80px; }
+.history-detail-old { color: var(--red); text-decoration: line-through; opacity: 0.75; }
+.history-detail-new { color: var(--green); font-weight: 600; }
+.history-detail-row-item i { color: var(--ink-soft); font-size: 0.8em; }
+.history-detail-empty { color: var(--ink-soft); font-size: 0.88em; font-style: italic; font-family: var(--font-body); }
