@@ -2895,6 +2895,7 @@ compareVarianceButton.addEventListener('click', () => {
                     item.setAttribute('role', 'option');
                     item.addEventListener('click', () => {
                         selectEl.selectedIndex = idx;
+                        selectEl.dispatchEvent(new Event('input', { bubbles: true }));
                         selectEl.dispatchEvent(new Event('change', { bubbles: true }));
                         renderLabel();
                         closePanel();
