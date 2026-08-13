@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-    <canvas id="bg-shader-canvas" aria-hidden="true"></canvas>
+    <canvas id="bg-particles"></canvas>
     <div class="container">        <h1>Cohin Inventory System</h1>
         <div class="info-bar">
             <div class="info-item"> <label for="userName">User:</label> <input type="text" id="userName" placeholder="Your name" style="width: 150px;"> </div>
@@ -1141,7 +1141,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
                 const highlightedCode = highlightMatch(code, searchTerm);
                 if (isMoved) {
-                    codeCell.innerHTML = `<span class="movement-star">★</span> ${highlightedCode}`;
+                    codeCell.innerHTML = `<span style="color: red; font-weight: bold;">★</span> ${highlightedCode}`;
                 } else {
                     codeCell.innerHTML = highlightedCode;
                 }
@@ -1253,7 +1253,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 tableRowsHtml += `
                     <tr>
                         <td style="text-align: center; width: 30px;">${printCount}</td>
-                        ${showMarking ? `<td class="movement-star" style="text-align: center; width: 30px;">${isMoved ? '★' : ''}</td>` : ''}
+                        ${showMarking ? `<td style="text-align: center; width: 30px; font-weight: bold; color: red;">${isMoved ? '★' : ''}</td>` : ''}
                         <td>${code}</td>
                         <td>${breakdownHtml}</td>
                     </tr>
@@ -2819,116 +2819,80 @@ compareVarianceButton.addEventListener('click', () => {
         });
     </script>
 
-    <!-- ==========================================================================
-         Ambient background — drifting particle field (Three.js), tuned to the
-         console's accent palette (steel / amber / violet / green). Purely
-         decorative: sits behind the glass .container, ignores pointer events,
-         and stands down entirely for prefers-reduced-motion or if WebGL fails.
-         ========================================================================== -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" integrity="sha512-tuHyHRtFXUsMTNIte1qE+GVCyBHmtdxYFHOOwZbTEd6njQIP7dYNhBrgWJ8j5cnfwSj/pWDrDDXjyNoOffuNAg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- Ambient particle background (glass + glow theme). Purely decorative — does not
+         touch any inventory logic above. Respects prefers-reduced-motion and skips on
+         narrow/mobile viewports to save battery. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        (function initParticleField() {
-            const canvas = document.getElementById('bg-shader-canvas');
-            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            if (!canvas || prefersReducedMotion || typeof THREE === 'undefined') return;
+    (function () {
+        const canvas = document.getElementById('bg-particles');
+        if (!canvas || typeof THREE === 'undefined') return;
 
-            let renderer;
-            try {
-                renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-            } catch (e) {
-                return; // No WebGL support — the CSS gradient alone still covers the ambience.
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (prefersReducedMotion || window.innerWidth < 769) return;
+
+        const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.z = 8;
+
+        const COUNT = 140;
+        const positions = new Float32Array(COUNT * 3);
+        for (let i = 0; i < COUNT; i++) {
+            positions[i * 3] = (Math.random() - 0.5) * 20;
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 12;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        function currentAmberColor() {
+            const isDark = document.body.classList.contains('dark-mode');
+            return isDark ? 0xe8a04c : 0xb8791e;
+        }
+
+        const material = new THREE.PointsMaterial({
+            color: currentAmberColor(),
+            size: 0.045,
+            transparent: true,
+            opacity: 0.35,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+
+        const particles = new THREE.Points(geometry, material);
+        scene.add(particles);
+
+        // Keep particle color in sync if dark mode is toggled at runtime.
+        const darkModeObserver = new MutationObserver(() => {
+            material.color.setHex(currentAmberColor());
+        });
+        darkModeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            particles.rotation.y += 0.0006;
+            particles.rotation.x += 0.0002;
+            const pos = geometry.attributes.position.array;
+            for (let i = 0; i < COUNT; i++) {
+                pos[i * 3 + 1] += 0.002;
+                if (pos[i * 3 + 1] > 6) pos[i * 3 + 1] = -6;
             }
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.z = 8;
-
-            function readColorHex(varName, fallbackHex) {
-                const raw = getComputedStyle(document.body).getPropertyValue(varName).trim();
-                return raw ? new THREE.Color(raw.startsWith('#') ? raw : fallbackHex) : new THREE.Color(fallbackHex);
-            }
-
-            // Four small point clouds, one per accent, layered together — reads as a single
-            // drifting dust field but keeps the console's on-brand color identity instead of
-            // a single monochrome tint.
-            const layers = [
-                { varName: '--steel',  fallback: '#1E4B7A', count: 60, size: 0.05, opacity: 0.28 },
-                { varName: '--amber',  fallback: '#B8791E', count: 50, size: 0.045, opacity: 0.32 },
-                { varName: '--violet', fallback: '#5B45C4', count: 40, size: 0.045, opacity: 0.24 },
-                { varName: '--green',  fallback: '#157F5C', count: 40, size: 0.04, opacity: 0.22 },
-            ];
-
-            const pointsGroups = layers.map(layer => {
-                const positions = new Float32Array(layer.count * 3);
-                for (let i = 0; i < layer.count; i++) {
-                    positions[i * 3] = (Math.random() - 0.5) * 22;
-                    positions[i * 3 + 1] = (Math.random() - 0.5) * 14;
-                    positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
-                }
-                const geometry = new THREE.BufferGeometry();
-                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-                const material = new THREE.PointsMaterial({
-                    color: readColorHex(layer.varName, layer.fallback),
-                    size: layer.size,
-                    transparent: true,
-                    opacity: layer.opacity,
-                    depthWrite: false,
-                    blending: THREE.AdditiveBlending,
-                });
-
-                const points = new THREE.Points(geometry, material);
-                scene.add(points);
-                return { points, material, layer };
-            });
-
-            function resize() {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            }
-            window.addEventListener('resize', resize);
-
-            // Re-sample palette whenever dark mode toggles.
-            const darkModeToggleBtn = document.getElementById('darkModeToggle');
-            if (darkModeToggleBtn) {
-                darkModeToggleBtn.addEventListener('click', () => {
-                    setTimeout(() => {
-                        pointsGroups.forEach(({ material, layer }) => {
-                            material.color = readColorHex(layer.varName, layer.fallback);
-                        });
-                    }, 0);
-                });
-            }
-
-            let rafId;
-            function animate() {
-                pointsGroups.forEach(({ points }, idx) => {
-                    points.rotation.y += 0.0004 + idx * 0.00006;
-                    points.rotation.x += 0.00012;
-                    const pos = points.geometry.attributes.position.array;
-                    for (let i = 0; i < pos.length / 3; i++) {
-                        pos[i * 3 + 1] += 0.0015 + idx * 0.0004;
-                        if (pos[i * 3 + 1] > 7) pos[i * 3 + 1] = -7;
-                    }
-                    points.geometry.attributes.position.needsUpdate = true;
-                });
-                renderer.render(scene, camera);
-                rafId = requestAnimationFrame(animate);
-            }
-            rafId = requestAnimationFrame(animate);
-
-            // Pause rendering when the tab is hidden to save battery/GPU.
-            document.addEventListener('visibilitychange', () => {
-                if (document.hidden) {
-                    cancelAnimationFrame(rafId);
-                } else {
-                    rafId = requestAnimationFrame(animate);
-                }
-            });
-        })();
+        });
+    })();
     </script>
 </body>
 </html>
