@@ -45,7 +45,7 @@ body.dark-mode {
   --border: #2D3441;
   --border-soft: rgba(255, 255, 255, 0.08);
   --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5);
-  --shadow-2: 0 10px 36px rgba(0,0,0,0.4), 0 0 24px var(--amber-glow);
+  --shadow-2: 0 10px 36px rgba(0,0,0,0.4);
 
   --glass-blur: blur(18px) saturate(140%);
   --glass-border: rgba(255, 255, 255, 0.08);
@@ -176,6 +176,9 @@ h2 {
   font-size: 1.7em;
   font-weight: 700;
   font-family: var(--font-mono);
+  color: var(--ink);
+}
+.stat-summary-value.is-accent {
   color: var(--amber);
   text-shadow: 0 0 14px var(--amber-glow);
 }
