@@ -1141,7 +1141,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
                 const highlightedCode = highlightMatch(code, searchTerm);
                 if (isMoved) {
-                    codeCell.innerHTML = `<span style="color: red; font-weight: bold;">★</span> ${highlightedCode}`;
+                    codeCell.innerHTML = `<span class="movement-star">★</span> ${highlightedCode}`;
                 } else {
                     codeCell.innerHTML = highlightedCode;
                 }
@@ -1253,7 +1253,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 tableRowsHtml += `
                     <tr>
                         <td style="text-align: center; width: 30px;">${printCount}</td>
-                        ${showMarking ? `<td style="text-align: center; width: 30px; font-weight: bold; color: red;">${isMoved ? '★' : ''}</td>` : ''}
+                        ${showMarking ? `<td class="movement-star" style="text-align: center; width: 30px;">${isMoved ? '★' : ''}</td>` : ''}
                         <td>${code}</td>
                         <td>${breakdownHtml}</td>
                     </tr>
@@ -2820,143 +2820,101 @@ compareVarianceButton.addEventListener('click', () => {
     </script>
 
     <!-- ==========================================================================
-         Ambient background shader (Three.js) — slow flowing color field, tuned
-         to the console's accent palette. Purely decorative: sits behind the
-         .container card, ignores pointer events, and stands down entirely for
-         prefers-reduced-motion or if WebGL/Three.js fails to load.
+         Ambient background — drifting particle field (Three.js), tuned to the
+         console's accent palette (steel / amber / violet / green). Purely
+         decorative: sits behind the glass .container, ignores pointer events,
+         and stands down entirely for prefers-reduced-motion or if WebGL fails.
          ========================================================================== -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" integrity="sha512-tuHyHRtFXUsMTNIte1qE+GVCyBHmtdxYFHOOwZbTEd6njQIP7dYNhBrgWJ8j5cnfwSj/pWDrDDXjyNoOffuNAg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
-        (function initAmbientShader() {
+        (function initParticleField() {
             const canvas = document.getElementById('bg-shader-canvas');
             const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
             if (!canvas || prefersReducedMotion || typeof THREE === 'undefined') return;
 
             let renderer;
             try {
-                renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+                renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
             } catch (e) {
-                return; // No WebGL support — CSS gradient alone still covers the ambience.
+                return; // No WebGL support — the CSS gradient alone still covers the ambience.
             }
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
 
             const scene = new THREE.Scene();
-            const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+            const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.z = 8;
 
-            // Reads live CSS custom properties so light/dark mode stays in sync automatically.
-            function readColor(varName, fallback) {
+            function readColorHex(varName, fallbackHex) {
                 const raw = getComputedStyle(document.body).getPropertyValue(varName).trim();
-                const m = raw.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
-                if (!m) return fallback;
-                return new THREE.Vector3(+m[1] / 255, +m[2] / 255, +m[3] / 255);
+                return raw ? new THREE.Color(raw.startsWith('#') ? raw : fallbackHex) : new THREE.Color(fallbackHex);
             }
 
-            const uniforms = {
-                u_time: { value: 0 },
-                u_resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-                u_colorA: { value: readColor('--steel', new THREE.Vector3(0.12, 0.29, 0.48)) },
-                u_colorB: { value: readColor('--amber', new THREE.Vector3(0.72, 0.47, 0.12)) },
-                u_colorC: { value: readColor('--violet', new THREE.Vector3(0.36, 0.27, 0.77)) },
-                u_colorD: { value: readColor('--green', new THREE.Vector3(0.08, 0.50, 0.36)) },
-                u_bg: { value: readColor('--paper', new THREE.Vector3(0.97, 0.97, 0.98)) },
-            };
+            // Four small point clouds, one per accent, layered together — reads as a single
+            // drifting dust field but keeps the console's on-brand color identity instead of
+            // a single monochrome tint.
+            const layers = [
+                { varName: '--steel',  fallback: '#1E4B7A', count: 60, size: 0.05, opacity: 0.28 },
+                { varName: '--amber',  fallback: '#B8791E', count: 50, size: 0.045, opacity: 0.32 },
+                { varName: '--violet', fallback: '#5B45C4', count: 40, size: 0.045, opacity: 0.24 },
+                { varName: '--green',  fallback: '#157F5C', count: 40, size: 0.04, opacity: 0.22 },
+            ];
 
-            const vertexShader = `
-                void main() {
-                    gl_Position = vec4(position, 1.0);
+            const pointsGroups = layers.map(layer => {
+                const positions = new Float32Array(layer.count * 3);
+                for (let i = 0; i < layer.count; i++) {
+                    positions[i * 3] = (Math.random() - 0.5) * 22;
+                    positions[i * 3 + 1] = (Math.random() - 0.5) * 14;
+                    positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
                 }
-            `;
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-            // Domain-warped fractal noise blended across four brand accents.
-            // Kept to a handful of octaves — ambient atmosphere, not a hero visual.
-            const fragmentShader = `
-                precision mediump float;
-                uniform float u_time;
-                uniform vec2 u_resolution;
-                uniform vec3 u_colorA;
-                uniform vec3 u_colorB;
-                uniform vec3 u_colorC;
-                uniform vec3 u_colorD;
-                uniform vec3 u_bg;
+                const material = new THREE.PointsMaterial({
+                    color: readColorHex(layer.varName, layer.fallback),
+                    size: layer.size,
+                    transparent: true,
+                    opacity: layer.opacity,
+                    depthWrite: false,
+                    blending: THREE.AdditiveBlending,
+                });
 
-                vec2 hash(vec2 p) {
-                    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-                    return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
-                }
-
-                float noise(vec2 p) {
-                    const float K1 = 0.366025404;
-                    const float K2 = 0.211324865;
-                    vec2 i = floor(p + (p.x + p.y) * K1);
-                    vec2 a = p - i + (i.x + i.y) * K2;
-                    vec2 o = (a.x > a.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-                    vec2 b = a - o + K2;
-                    vec2 c = a - 1.0 + 2.0 * K2;
-                    vec3 h = max(0.5 - vec3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
-                    vec3 n = h * h * h * h * vec3(dot(a, hash(i)), dot(b, hash(i + o)), dot(c, hash(i + 1.0)));
-                    return dot(n, vec3(70.0));
-                }
-
-                float fbm(vec2 p) {
-                    float v = 0.0;
-                    float amp = 0.5;
-                    for (int i = 0; i < 4; i++) {
-                        v += amp * noise(p);
-                        p *= 2.0;
-                        amp *= 0.5;
-                    }
-                    return v;
-                }
-
-                void main() {
-                    vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-                    vec2 aspectUv = (uv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0);
-                    float t = u_time * 0.045;
-
-                    vec2 warp = vec2(fbm(aspectUv * 1.4 + t), fbm(aspectUv * 1.4 - t));
-                    float field = fbm(aspectUv * 1.1 + warp * 0.8 + t * 0.5);
-
-                    float n1 = smoothstep(-0.6, 0.6, field);
-                    float n2 = smoothstep(-0.2, 0.9, fbm(aspectUv * 1.6 - t * 0.7 + 3.1));
-
-                    vec3 mixAB = mix(u_colorA, u_colorB, n1);
-                    vec3 mixCD = mix(u_colorC, u_colorD, n2);
-                    vec3 color = mix(mixAB, mixCD, smoothstep(0.25, 0.75, field));
-                    color = mix(u_bg, color, 0.55);
-
-                    gl_FragColor = vec4(color, 1.0);
-                }
-            `;
-
-            const material = new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader });
-            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-            scene.add(mesh);
+                const points = new THREE.Points(geometry, material);
+                scene.add(points);
+                return { points, material, layer };
+            });
 
             function resize() {
-                const w = window.innerWidth, h = window.innerHeight;
-                renderer.setSize(w, h, false);
-                uniforms.u_resolution.value.set(w, h);
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
             }
-            resize();
             window.addEventListener('resize', resize);
 
-            // Re-sample palette whenever dark mode toggles (button already exists in the DOM).
+            // Re-sample palette whenever dark mode toggles.
             const darkModeToggleBtn = document.getElementById('darkModeToggle');
             if (darkModeToggleBtn) {
                 darkModeToggleBtn.addEventListener('click', () => {
                     setTimeout(() => {
-                        uniforms.u_colorA.value = readColor('--steel', uniforms.u_colorA.value);
-                        uniforms.u_colorB.value = readColor('--amber', uniforms.u_colorB.value);
-                        uniforms.u_colorC.value = readColor('--violet', uniforms.u_colorC.value);
-                        uniforms.u_colorD.value = readColor('--green', uniforms.u_colorD.value);
-                        uniforms.u_bg.value = readColor('--paper', uniforms.u_bg.value);
+                        pointsGroups.forEach(({ material, layer }) => {
+                            material.color = readColorHex(layer.varName, layer.fallback);
+                        });
                     }, 0);
                 });
             }
 
             let rafId;
-            function animate(timeMs) {
-                uniforms.u_time.value = timeMs * 0.001;
+            function animate() {
+                pointsGroups.forEach(({ points }, idx) => {
+                    points.rotation.y += 0.0004 + idx * 0.00006;
+                    points.rotation.x += 0.00012;
+                    const pos = points.geometry.attributes.position.array;
+                    for (let i = 0; i < pos.length / 3; i++) {
+                        pos[i * 3 + 1] += 0.0015 + idx * 0.0004;
+                        if (pos[i * 3 + 1] > 7) pos[i * 3 + 1] = -7;
+                    }
+                    points.geometry.attributes.position.needsUpdate = true;
+                });
                 renderer.render(scene, camera);
                 rafId = requestAnimationFrame(animate);
             }
