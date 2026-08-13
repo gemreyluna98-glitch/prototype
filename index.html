@@ -3006,12 +3006,34 @@ compareVarianceButton.addEventListener('click', () => {
             return isDark ? 0xe8a04c : 0xb8791e;
         }
 
+        // Draw a soft round glow sprite on an offscreen canvas so points render
+        // as star-like glows instead of Three.js's default flat squares.
+        function makeStarSprite() {
+            const size = 64;
+            const c = document.createElement('canvas');
+            c.width = c.height = size;
+            const ctx = c.getContext('2d');
+            const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+            grad.addColorStop(0, 'rgba(255,255,255,1)');
+            grad.addColorStop(0.2, 'rgba(255,255,255,0.9)');
+            grad.addColorStop(0.5, 'rgba(255,255,255,0.25)');
+            grad.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, size, size);
+            return new THREE.CanvasTexture(c);
+        }
+
+        const starSprite = makeStarSprite();
+
         const material = new THREE.PointsMaterial({
             color: currentAmberColor(),
-            size: 0.045,
+            map: starSprite,
+            size: 0.09,
+            sizeAttenuation: true,
             transparent: true,
-            opacity: 0.35,
+            opacity: 0.55,
             depthWrite: false,
+            alphaTest: 0.01,
             blending: THREE.AdditiveBlending
         });
 
@@ -3024,6 +3046,7 @@ compareVarianceButton.addEventListener('click', () => {
         });
         darkModeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
+        let twinkleT = 0;
         function animate() {
             requestAnimationFrame(animate);
             particles.rotation.y += 0.0006;
@@ -3034,6 +3057,12 @@ compareVarianceButton.addEventListener('click', () => {
                 if (pos[i * 3 + 1] > 6) pos[i * 3 + 1] = -6;
             }
             geometry.attributes.position.needsUpdate = true;
+
+            // Gentle twinkle: slowly pulse overall opacity so the stars feel alive
+            // rather than static dots.
+            twinkleT += 0.01;
+            material.opacity = 0.45 + Math.sin(twinkleT) * 0.15;
+
             renderer.render(scene, camera);
         }
         animate();
