@@ -44,6 +44,63 @@ body.dark-mode {
 }
 
 /* ==========================================================================
+   Ambient background — CSS gradient drift + WebGL shader mesh (below)
+   Identity cue: a console that is quietly "live" even at rest.
+   ========================================================================== */
+:root {
+  --bg-glow-1: rgba(30, 75, 122, 0.16);   /* steel */
+  --bg-glow-2: rgba(184, 121, 30, 0.12);  /* amber */
+  --bg-glow-3: rgba(91, 69, 196, 0.14);   /* violet */
+  --bg-glow-4: rgba(21, 127, 92, 0.10);   /* green */
+  --shader-opacity: 0.5;
+}
+
+body.dark-mode {
+  --bg-glow-1: rgba(56, 123, 189, 0.22);
+  --bg-glow-2: rgba(214, 152, 74, 0.16);
+  --bg-glow-3: rgba(130, 108, 235, 0.20);
+  --bg-glow-4: rgba(35, 176, 133, 0.14);
+  --shader-opacity: 0.7;
+}
+
+body {
+  position: relative;
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 15% 10%, var(--bg-glow-1), transparent 60%),
+    radial-gradient(ellipse 70% 55% at 90% 15%, var(--bg-glow-2), transparent 60%),
+    radial-gradient(ellipse 75% 60% at 85% 95%, var(--bg-glow-3), transparent 60%),
+    radial-gradient(ellipse 65% 55% at 10% 90%, var(--bg-glow-4), transparent 60%);
+  background-attachment: fixed;
+  background-size: 200% 200%;
+  animation: ambient-drift 32s ease-in-out infinite;
+  transition: background-color 0.25s ease;
+}
+
+@keyframes ambient-drift {
+  0%   { background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%; }
+  50%  { background-position: 15% 10%, 85% 15%, 85% 90%, 15% 90%; }
+  100% { background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%; }
+}
+
+#bg-shader-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--shader-opacity);
+  transition: opacity 0.4s ease;
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body { animation: none; }
+  #bg-shader-canvas { display: none; }
+}
+
+/* ==========================================================================
    Base
    ========================================================================== */
 * { box-sizing: border-box; }
