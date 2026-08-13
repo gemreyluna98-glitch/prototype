@@ -161,7 +161,7 @@ h2 {
 .stat-summary-card:hover {
   transform: translateY(-2px);
   border-color: var(--amber-glow);
-  box-shadow: 0 10px 24px var(--amber-glow);
+  box-shadow: var(--shadow-1), 0 0 20px var(--amber-glow);
 }
 .stat-summary-label {
   font-size: 0.7em;
@@ -689,7 +689,7 @@ body.dark-mode .color-orange { color: #E8C547; } /* HOLD — brighter for dark b
 .qty-delta-neutral { color: var(--grey-mid); font-weight: 600; font-family: var(--font-mono); }
 #itemReportSummary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
 .report-stat-card { flex: 1; min-width: 110px; background: var(--card); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 10px 12px; text-align: center; transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease; }
-.report-stat-card:hover { transform: translateY(-2px); border-color: var(--amber-glow); box-shadow: 0 10px 24px var(--amber-glow); }
+.report-stat-card:hover { transform: translateY(-2px); border-color: var(--amber-glow); box-shadow: var(--shadow-1), 0 0 20px var(--amber-glow); }
 .report-stat-card .stat-label { font-size: 0.68em; color: var(--ink-soft); text-transform: uppercase; font-weight: 700; letter-spacing: 0.06em; font-family: var(--font-mono); }
 .report-stat-card .stat-value { font-size: 1.3em; font-weight: 700; color: var(--amber); margin-top: 2px; font-family: var(--font-mono); text-shadow: 0 0 14px var(--amber-glow); }
 #itemReportTableWrapper { max-height: 420px; overflow-y: auto; border: 1px solid var(--border-soft); border-radius: var(--radius); }
