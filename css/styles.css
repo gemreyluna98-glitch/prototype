@@ -122,6 +122,19 @@ h2 {
   border-bottom: 1px solid var(--border-soft);
   padding-bottom: 16px;
   margin-bottom: 18px;
+  position: relative;
+}
+.container > h1::before {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 64px;
+  height: 3px;
+  background: var(--amber);
+  border-radius: 2px;
+  box-shadow: 0 0 10px var(--amber-glow);
 }
 .container > h1::after {
   content: 'MATERIAL STOCK MANIFEST';
@@ -542,14 +555,17 @@ h2 {
 table { width: 100%; border-collapse: collapse; margin-top: 0; }
 th, td { border: none; border-bottom: 1px solid var(--border-soft); padding: 11px 16px; text-align: left; vertical-align: top; white-space: nowrap; }
 th {
-  background: transparent; color: var(--ink-soft); font-weight: 600;
+  background: var(--card); color: var(--ink-soft); font-weight: 600;
   text-transform: uppercase; font-size: 0.72em; letter-spacing: 0.09em;
   font-family: var(--font-mono);
   border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 2;
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
 }
 td { font-family: var(--font-mono); font-size: 0.92em; }
 tbody tr:last-child td { border-bottom: none; }
-tbody tr:nth-child(even) { background-color: transparent; }
+tbody tr:nth-child(even) { background-color: rgba(127, 137, 156, 0.035); }
+body.dark-mode tbody tr:nth-child(even) { background-color: rgba(255, 255, 255, 0.02); }
 tbody tr:hover { background-color: rgba(127, 137, 156, 0.06); transition: background-color 0.15s ease; }
 body.dark-mode tbody tr:hover { background-color: rgba(255, 255, 255, 0.03); }
 .column-hidden { display: none; }
@@ -573,7 +589,7 @@ body.dark-mode tbody tr:hover { background-color: rgba(255, 255, 255, 0.03); }
   font-size: 1em; box-sizing: border-box; transition: border-color 0.15s, box-shadow 0.15s;
   background-color: var(--card); color: var(--ink); font-family: var(--font-mono);
 }
-.item-input input:focus, .item-input select:focus { outline: none; border-color: var(--steel); box-shadow: 0 0 0 3px rgba(30, 75, 122, 0.15); }
+.item-input input:focus, .item-input select:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px var(--amber-glow); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 28px; flex-wrap: wrap; }
 .modal-actions button {
   padding: 11px 20px; border: none; border-radius: var(--radius); cursor: pointer;
@@ -718,7 +734,8 @@ body.dark-mode .color-orange { color: #E8C547; } /* HOLD — brighter for dark b
 .filter-group { display: flex; align-items: center; gap: 8px; }
 .filter-group label { font-weight: bold; white-space: nowrap; display: flex; align-items: center; gap: 5px; font-size: 0.9em; color: var(--ink); }
 .filter-group label i { font-size: 1em; color: var(--amber-dark); }
-.filter-section select, .filter-section input[type="text"] { padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.88em; min-width: 120px; background-color: var(--card); color: var(--ink); font-family: var(--font-mono); }
+.filter-section select, .filter-section input[type="text"] { padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.88em; min-width: 120px; background-color: var(--card); color: var(--ink); font-family: var(--font-mono); transition: border-color 0.15s, box-shadow 0.15s; }
+.filter-section select:focus, .filter-section input[type="text"]:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px var(--amber-glow); }
 hr { border: 0; height: 1px; background: var(--border); margin: 15px 0; }
 #historyTable th:nth-child(1), #historyTable td:nth-child(1) { white-space: nowrap; width: 160px; }
 #historyTable td:nth-child(4) { white-space: normal; font-family: var(--font-body); }
@@ -957,3 +974,91 @@ select.custom-select-native { display: none !important; }
   .custom-select-panel { backdrop-filter: none; -webkit-backdrop-filter: none; background-color: var(--paper); }
   body.dark-mode .custom-select-panel { background-color: #10131a; }
 }
+
+/* ==========================================================================
+   Toast notifications (replaces native alert())
+   ========================================================================== */
+#toastStack {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  pointer-events: none;
+  width: 100%;
+  max-width: 420px;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+.app-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  background: var(--card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-2);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.92em;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.app-toast.is-visible { opacity: 1; transform: translateY(0); }
+.app-toast i { flex-shrink: 0; font-size: 1.05em; }
+.app-toast-success { border-color: rgba(21, 127, 92, 0.4); }
+.app-toast-success i { color: var(--green); }
+.app-toast-error { border-color: rgba(179, 38, 30, 0.4); }
+.app-toast-error i { color: var(--red); }
+.app-toast-info i { color: var(--amber); }
+
+/* ==========================================================================
+   Glass-styled alert/confirm dialog (replaces native confirm())
+   ========================================================================== */
+.glass-dialog-content { max-width: 420px; text-align: center; }
+.glass-dialog-message {
+  color: var(--ink);
+  font-size: 1em;
+  line-height: 1.5;
+  margin: 6px 0 24px;
+}
+.glass-dialog-actions { justify-content: center; gap: 12px; }
+.glass-dialog-cancel {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
+}
+.glass-dialog-cancel:hover { border-color: var(--ink-soft); color: var(--ink); }
+.glass-dialog-ok {
+  background: var(--amber);
+  color: #fff;
+  box-shadow: 0 0 14px var(--amber-glow);
+}
+.glass-dialog-ok:hover { background: var(--amber-dark); }
+
+/* ==========================================================================
+   Empty state (inventory table with no rows)
+   ========================================================================== */
+.table-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 20px;
+  color: var(--ink-soft);
+  font-family: var(--font-body);
+  white-space: normal;
+}
+.table-empty-state i { font-size: 1.8em; color: var(--amber-glow); }
+.table-empty-state span { font-size: 0.95em; }

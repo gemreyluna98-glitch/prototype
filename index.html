@@ -318,6 +318,21 @@
             </p>
         </div>
     </div>
+
+    <!-- Toast notification stack -->
+    <div id="toastStack" aria-live="polite"></div>
+
+    <!-- Reusable glass-styled alert/confirm modal (replaces native alert()/confirm()) -->
+    <div id="glassDialogModal" class="modal">
+        <div class="modal-content glass-dialog-content">
+            <p id="glassDialogMessage" class="glass-dialog-message"></p>
+            <div class="modal-actions glass-dialog-actions">
+                <button id="glassDialogCancel" class="glass-dialog-cancel">Cancel</button>
+                <button id="glassDialogOk" class="glass-dialog-ok">OK</button>
+            </div>
+        </div>
+    </div>
+
     <div id="clearChoiceModal" class="modal"> <div class="modal-content"> <h2>Clear Options</h2> <p>Pumili ng aksyon na nais mong gawin.</p> <div class="modal-actions" style="justify-content: center;"> <button id="triggerClearAllButton"><i class="fas fa-exclamation-triangle"></i> Clear All Inventory</button> <button id="triggerBulkClearButton"><i class="fas fa-eraser"></i> Bulk Clear Item Quantities</button> </div> <div class="modal-actions"> <button id="cancelClearChoice">Cancel</button> </div> </div> </div>
     <div id="bulkClearQtyModal" class="modal"> <div class="modal-content"> <h2>Bulk Clear Stocking Quantities</h2> <div class="filter-section" id="bulkClearFilterSection"> <div class="filter-header"><i class="fas fa-filter"></i> Filter Items</div> <div class="filter-group"> <label for="itemTypeFilter_bulk"><i class="fas fa-box"></i> Item Type:</label> <select id="itemTypeFilter_bulk"> <option value="ALL">All</option><option value="LBL">Labels</option><option value="CTN">Carton</option><option value="PLASTIC">Plastic</option><option value="OTHERS">Other</option> </select> </div> <div class="filter-group"> <label for="remarksFilter_bulk"><i class="fas fa-comment"></i> Remarks:</label> <select id="remarksFilter_bulk"> <option value="ALL">All</option><option value="HOLD">Hold</option><option value="APPROVED">Approved</option><option value="FIRSTOUT_OLD">First Out/Old</option><option value="NO_REMARK">No Remark</option><option value="OTHER_REMARKS">Other</option> </select> </div> <div class="filter-group"> <label for="dataPresenceFilter_bulk"><i class="fas fa-database"></i> Qty Data:</label> <select id="dataPresenceFilter_bulk"> <option value="ALL">All</option><option value="WITH_DATA">With Data</option><option value="WITHOUT_DATA">No Data</option> </select> </div> </div> <div class="bulk-select-actions"> <button id="bulkSelectAll">Select All</button> <button id="bulkDeselectAll">Deselect All</button> </div> <div id="bulkClearList"></div> <div id="bulkClearErrorMessage" class="error-message"></div> <div class="modal-actions"> <button id="confirmBulkClearButton">Clear Selected Quantities</button> <button id="cancelBulkClear">Cancel</button> </div> </div> </div>
 
@@ -404,6 +419,60 @@
 
     <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
     <script>
+        // ==========================================================================
+        // Toast notifications + glass-styled alert/confirm (replaces native
+        // window.alert() / window.confirm(), which render as unstyled OS dialogs
+        // that break the glass theme).
+        // ==========================================================================
+        function showToast(message, type = 'info') {
+            const stack = document.getElementById('toastStack');
+            if (!stack) { window.alert(message); return; }
+            const toast = document.createElement('div');
+            toast.className = 'app-toast app-toast-' + type;
+            const iconClass = type === 'success' ? 'fa-circle-check'
+                : type === 'error' ? 'fa-circle-exclamation'
+                : 'fa-circle-info';
+            toast.innerHTML = '<i class="fas ' + iconClass + '"></i><span></span>';
+            toast.querySelector('span').textContent = message;
+            stack.appendChild(toast);
+            requestAnimationFrame(() => toast.classList.add('is-visible'));
+            setTimeout(() => {
+                toast.classList.remove('is-visible');
+                setTimeout(() => toast.remove(), 250);
+            }, 4000);
+        }
+
+        function glassDialog(message, { showCancel }) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('glassDialogModal');
+                const msgEl = document.getElementById('glassDialogMessage');
+                const okBtn = document.getElementById('glassDialogOk');
+                const cancelBtn = document.getElementById('glassDialogCancel');
+                msgEl.textContent = message;
+                cancelBtn.style.display = showCancel ? '' : 'none';
+                modal.style.display = 'block';
+
+                function cleanup(result) {
+                    modal.style.display = 'none';
+                    okBtn.removeEventListener('click', onOk);
+                    cancelBtn.removeEventListener('click', onCancel);
+                    resolve(result);
+                }
+                function onOk() { cleanup(true); }
+                function onCancel() { cleanup(false); }
+                okBtn.addEventListener('click', onOk);
+                cancelBtn.addEventListener('click', onCancel);
+            });
+        }
+
+        function customAlert(message) {
+            return glassDialog(message, { showCancel: false });
+        }
+
+        function customConfirm(message) {
+            return glassDialog(message, { showCancel: true });
+        }
+
         const lockSystemButton = document.getElementById('lockSystemButton'),
         darkModeToggle = document.getElementById("darkModeToggle"),
         inventoryTableBody = document.getElementById('inventoryTableBody'),
@@ -931,7 +1000,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 const detailsText = l.deltaLabel && l.deltaLabel !== l.details ? `${l.deltaLabel}  (${l.details})` : l.details;
                 dataForExport.push([formattedDate, l.action, typeof l.delta === 'number' ? l.delta : '', before, after, detailsText]);
             });
-            if (dataForExport.length <= 1) { alert('No transaction history to export for this item.'); return; }
+            if (dataForExport.length <= 1) { showToast('No transaction history to export for this item.', 'error'); return; }
             const ws = XLSX.utils.aoa_to_sheet(dataForExport);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Item Report");
@@ -1148,6 +1217,15 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 });
             }
             inventoryTableBody.innerHTML = '';
+            if (rowsToShow.length === 0) {
+                const emptyRow = inventoryTableBody.insertRow();
+                const emptyCell = emptyRow.insertCell(0);
+                emptyCell.colSpan = 99;
+                const hasAnyItems = originalRowsOrder.length > 0;
+                emptyCell.innerHTML = hasAnyItems
+                    ? '<div class="table-empty-state"><i class="fas fa-filter-circle-xmark"></i><span>No items match your current filters.</span></div>'
+                    : '<div class="table-empty-state"><i class="fas fa-box-open"></i><span>No items yet. Add or import inventory to get started.</span></div>';
+            } else {
             rowsToShow.forEach(row => {
                 const code = row.dataset.code;
                 const codeCell = row.cells[0];
@@ -1162,6 +1240,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
                 inventoryTableBody.appendChild(row);
             });
+            }
 
             // Also filter Transaction History
             renderHistoryLog(searchTerm);
@@ -1185,7 +1264,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             shownEl.textContent = shownCount.toLocaleString();
             holdEl.textContent = holdCount.toLocaleString();
         }
-        function exportReportFile() { const dataForExport = [['MATERIAL CODE', 'Stocking Qty', 'Total per Row', 'Remarks', 'Building/Rack']]; originalRowsOrder.forEach(row => { const code = row.dataset.code; const stockingQty = row.dataset.stockingQty; const formula = convertToExcelFormula(stockingQty); const remarks = JSON.parse(row.dataset.remarks || '[]').join(' | '); const locations = JSON.parse(row.dataset.locations || '[]').filter(l => l).join(' | '); dataForExport.push([code, stockingQty, formula, remarks, locations]); }); if (dataForExport.length <= 1) { alert('No data to export!'); return; } const ws = XLSX.utils.aoa_to_sheet(dataForExport); for (let i = 1; i < dataForExport.length; i++) { const cellAddress = 'C' + (i + 1); const cell = ws[cellAddress]; if (cell && typeof cell.v === 'string' && cell.v.startsWith('=')) { cell.t = 'f'; cell.f = cell.v.substring(1); delete cell.v; } } const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Inventory Data"); XLSX.writeFile(wb, generateBackupFilename().replace("backup_", "report_")); logTransaction('EXPORT REPORT', '-', 'Human-readable report exported.'); }
+        function exportReportFile() { const dataForExport = [['MATERIAL CODE', 'Stocking Qty', 'Total per Row', 'Remarks', 'Building/Rack']]; originalRowsOrder.forEach(row => { const code = row.dataset.code; const stockingQty = row.dataset.stockingQty; const formula = convertToExcelFormula(stockingQty); const remarks = JSON.parse(row.dataset.remarks || '[]').join(' | '); const locations = JSON.parse(row.dataset.locations || '[]').filter(l => l).join(' | '); dataForExport.push([code, stockingQty, formula, remarks, locations]); }); if (dataForExport.length <= 1) { showToast('No data to export!', 'error'); return; } const ws = XLSX.utils.aoa_to_sheet(dataForExport); for (let i = 1; i < dataForExport.length; i++) { const cellAddress = 'C' + (i + 1); const cell = ws[cellAddress]; if (cell && typeof cell.v === 'string' && cell.v.startsWith('=')) { cell.t = 'f'; cell.f = cell.v.substring(1); delete cell.v; } } const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Inventory Data"); XLSX.writeFile(wb, generateBackupFilename().replace("backup_", "report_")); logTransaction('EXPORT REPORT', '-', 'Human-readable report exported.'); }
         function printInventory() {
             const dateValue = currentDateInput.value;
             const [year, month, day] = dateValue.split('-');
@@ -1374,7 +1453,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         }
 
         function exportBackupFile() {
-            if (originalRowsOrder.length === 0) { alert('No inventory data to backup.'); return; }
+            if (originalRowsOrder.length === 0) { showToast('No inventory data to backup.', 'error'); return; }
 
             const wb = XLSX.utils.book_new();
 
@@ -1417,7 +1496,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         function importBackupFile(file) {
             if (!file) return;
             const reader = new FileReader();
-            reader.onload = (e) => {
+            reader.onload = async (e) => {
                 try {
                     const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
 
@@ -1426,11 +1505,11 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                     const invData = XLSX.utils.sheet_to_json(invSheet);
 
                     if (!invData.length || !invData[0].hasOwnProperty('MATERIAL_CODE') || !invData[0].hasOwnProperty('STOCKING_QTY') || !invData[0].hasOwnProperty('REMARKS_JSON')) {
-                        alert('Invalid Backup file format.');
+                        showToast('Invalid Backup file format.', 'error');
                         return;
                     }
 
-                    if (!confirm("This will overwrite the current inventory and history. Continue?")) { return; }
+                    if (!(await customConfirm("This will overwrite the current inventory and history. Continue?"))) { return; }
 
                     // 1. Restore Inventory
                     inventoryTableBody.innerHTML = '';
@@ -1475,7 +1554,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                     }
 
                     logTransaction('RESTORE', '-', `Full inventory state restored from ${file.name}.`);
-                } catch (err) { alert('Error reading the backup file.'); console.error(err); }
+                } catch (err) { showToast('Error reading the backup file.', 'error'); console.error(err); }
             };
             reader.readAsArrayBuffer(file);
         }
@@ -2250,7 +2329,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             const capacity = parseFloat(bulkDelPalletCapacity.value);
 
             if(!code || !qty) {
-                alert('Material Code and Quantity are required.');
+                showToast('Material Code and Quantity are required.', 'error');
                 return;
             }
 
@@ -2297,7 +2376,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
         confirmBulkDeliveryButton.addEventListener('click', () => {
             if(pendingBulkDeliveries.length === 0) {
-                alert('No items to deliver.');
+                showToast('No items to deliver.', 'error');
                 return;
             }
 
@@ -2336,7 +2415,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             saveInventoryToLocalStorage();
             applyFiltersAndSort();
             bulkDeliveriesModal.style.display = 'none';
-            alert(`Successfully saved ${successCount} deliveries.`);
+            showToast(`Successfully saved ${successCount} deliveries.`, 'success');
         });
 
         cancelBulkDelivery.addEventListener('click', () => {
@@ -2411,7 +2490,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         openImportModalButton.addEventListener('click', () => { checkAccess(() => { fileOpsModal.style.display = 'none'; const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = ".xlsx, .xls"; fileInput.onchange = e => handleFileSelect(e.target.files[0]); fileInput.click(); }); });
 
         clearInventoryButton.addEventListener('click', () => { checkAccess(() => { fileOpsModal.style.display = 'none'; clearChoiceModal.style.display = 'block'; }); });
-        clearHistoryButton.addEventListener('click', () => { checkAccess(() => { if (confirm('Are you sure?')) { transactionHistory = []; historyTableBody.innerHTML = ''; logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); } }); });
+        clearHistoryButton.addEventListener('click', () => { checkAccess(async () => { if (await customConfirm('Are you sure?')) { transactionHistory = []; historyTableBody.innerHTML = ''; logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); } }); });
         inventoryTableBody.addEventListener('click', (event) => { const targetCell = event.target.closest('.editable-breakdown'); if (targetCell) {
             checkAccess(() => {
                 currentEditingRow = targetCell.closest('tr'); editBreakdownInput.value = formatStockingQty(currentEditingRow.dataset.stockingQty); const remarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const locations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const parts = getBreakdownParts(formatStockingQty(currentEditingRow.dataset.stockingQty)); generateRemarksInputs(parts.length, remarks, locations); if (editBreakdownItemCode) editBreakdownItemCode.textContent = currentEditingRow.dataset.code; if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.remove('stocking-qty-floating'); document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight')); updateEditBreakdownPreview(); editBreakdownModal.style.display = 'block';
@@ -2424,18 +2503,18 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         exportExcelButton.addEventListener('click', () => { exportReportFile(); fileOpsModal.style.display = 'none'; });
         printInventoryButton.addEventListener('click', () => { printInventory(); fileOpsModal.style.display = 'none'; });
         cancelClearChoice.addEventListener('click', () => { clearChoiceModal.style.display = 'none'; });
-        triggerClearAllButton.addEventListener('click', () => { if(confirm('This will delete all items in the inventory. Are you sure?')) { inventoryTableBody.innerHTML = ''; originalRowsOrder = []; applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('CLEAR ALL', '-', 'All inventory data cleared.'); } clearChoiceModal.style.display = 'none'; });
+        triggerClearAllButton.addEventListener('click', async () => { if(await customConfirm('This will delete all items in the inventory. Are you sure?')) { inventoryTableBody.innerHTML = ''; originalRowsOrder = []; applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('CLEAR ALL', '-', 'All inventory data cleared.'); } clearChoiceModal.style.display = 'none'; });
         triggerBulkClearButton.addEventListener('click', () => { bulkClearFilterSection.querySelectorAll('select').forEach(sel => { sel.value = 'ALL'; if (sel.__syncCustomSelect) sel.__syncCustomSelect(); }); populateBulkClearList(); clearChoiceModal.style.display = 'none'; bulkClearQtyModal.style.display = 'block'; });
         bulkClearFilterSection.querySelectorAll('select').forEach(el => el.addEventListener('input', applyBulkClearFilters));
         bulkSelectAllButton.addEventListener('click', () => { bulkClearList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true); });
         bulkDeselectAllButton.addEventListener('click', () => { bulkClearList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false); });
         cancelBulkClear.addEventListener('click', () => { bulkClearQtyModal.style.display = 'none'; });
-        confirmBulkClearButton.addEventListener('click', () => { const selectedCheckboxes = Array.from(bulkClearList.querySelectorAll('input[type="checkbox"]:checked')); if (selectedCheckboxes.length === 0) { alert('Please select at least one item to clear.'); return; } const codesToClear = selectedCheckboxes.map(cb => cb.value); if (confirm(`Are you sure you want to clear the quantity for ${codesToClear.length} selected item(s)?`)) { codesToClear.forEach(code => { const targetRow = originalRowsOrder.find(row => row.dataset.code === code); if (targetRow) { targetRow.dataset.stockingQty = ''; targetRow.dataset.remarks = '[]'; targetRow.dataset.locations = '[]'; targetRow.cells[1].innerHTML = ''; targetRow.cells[2].textContent = '0'; targetRow.cells[3].textContent = ''; } }); saveInventoryToLocalStorage(); logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : '')); applyFiltersAndSort(); alert(`Successfully cleared quantities for ${codesToClear.length} item(s).`); bulkClearQtyModal.style.display = 'none'; } });
-        confirmImportButton.addEventListener('click', () => { if (!confirm("Importing new data will overwrite the current inventory. Do you want to continue?")) { return; } const sheetName = excelSheetSelect.value; const worksheet = loadedWorkbook.Sheets[sheetName]; const qtyColIndex = stockingQtyDateSelectModal.value; const dataForHeaders = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); const codeHeaderRow = dataForHeaders[4] || []; const codeColIndex = codeHeaderRow.findIndex(h => typeof h === 'string' && h.trim().toUpperCase() === 'MATERIAL CODE'); if (codeColIndex === -1) { importErrorMessageDiv.textContent = `"MATERIAL CODE" column not found on Row 5.`; return; } inventoryTableBody.innerHTML = ''; originalRowsOrder = []; const range = XLSX.utils.decode_range(worksheet['!ref']); let importedCount = 0; for (let R = DATA_START_ROW_EXCEL_INDEX - 1; R <= range.e.r; ++R) { const codeCell = worksheet[XLSX.utils.encode_cell({c: codeColIndex, r: R})]; if (codeCell && codeCell.v) { importedCount++; const code = codeCell.w || codeCell.v.toString(); let stockingQty = ''; if (qtyColIndex) { const qtyCell = worksheet[XLSX.utils.encode_cell({c: parseInt(qtyColIndex), r: R})]; if (qtyCell) stockingQty = qtyCell.f || qtyCell.w || String(qtyCell.v) || ''; } renderRow({ code: code.trim(), stockingQty: stockingQty.toString(), remarks: Array(getBreakdownParts(formatStockingQty(stockingQty)).length).fill('') }, false); } } applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('IMPORT', '-', `Imported ${importedCount} items from sheet: ${sheetName}.`); importDataModal.style.display = 'none'; });
+        confirmBulkClearButton.addEventListener('click', async () => { const selectedCheckboxes = Array.from(bulkClearList.querySelectorAll('input[type="checkbox"]:checked')); if (selectedCheckboxes.length === 0) { showToast('Please select at least one item to clear.', 'error'); return; } const codesToClear = selectedCheckboxes.map(cb => cb.value); if (await customConfirm(`Are you sure you want to clear the quantity for ${codesToClear.length} selected item(s)?`)) { codesToClear.forEach(code => { const targetRow = originalRowsOrder.find(row => row.dataset.code === code); if (targetRow) { targetRow.dataset.stockingQty = ''; targetRow.dataset.remarks = '[]'; targetRow.dataset.locations = '[]'; targetRow.cells[1].innerHTML = ''; targetRow.cells[2].textContent = '0'; targetRow.cells[3].textContent = ''; } }); saveInventoryToLocalStorage(); logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : '')); applyFiltersAndSort(); showToast(`Successfully cleared quantities for ${codesToClear.length} item(s).`, 'success'); bulkClearQtyModal.style.display = 'none'; } });
+        confirmImportButton.addEventListener('click', async () => { if (!(await customConfirm("Importing new data will overwrite the current inventory. Do you want to continue?"))) { return; } const sheetName = excelSheetSelect.value; const worksheet = loadedWorkbook.Sheets[sheetName]; const qtyColIndex = stockingQtyDateSelectModal.value; const dataForHeaders = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); const codeHeaderRow = dataForHeaders[4] || []; const codeColIndex = codeHeaderRow.findIndex(h => typeof h === 'string' && h.trim().toUpperCase() === 'MATERIAL CODE'); if (codeColIndex === -1) { importErrorMessageDiv.textContent = `"MATERIAL CODE" column not found on Row 5.`; return; } inventoryTableBody.innerHTML = ''; originalRowsOrder = []; const range = XLSX.utils.decode_range(worksheet['!ref']); let importedCount = 0; for (let R = DATA_START_ROW_EXCEL_INDEX - 1; R <= range.e.r; ++R) { const codeCell = worksheet[XLSX.utils.encode_cell({c: codeColIndex, r: R})]; if (codeCell && codeCell.v) { importedCount++; const code = codeCell.w || codeCell.v.toString(); let stockingQty = ''; if (qtyColIndex) { const qtyCell = worksheet[XLSX.utils.encode_cell({c: parseInt(qtyColIndex), r: R})]; if (qtyCell) stockingQty = qtyCell.f || qtyCell.w || String(qtyCell.v) || ''; } renderRow({ code: code.trim(), stockingQty: stockingQty.toString(), remarks: Array(getBreakdownParts(formatStockingQty(stockingQty)).length).fill('') }, false); } } applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('IMPORT', '-', `Imported ${importedCount} items from sheet: ${sheetName}.`); importDataModal.style.display = 'none'; });
         editBreakdownInput.addEventListener('input', function() { const parts = getBreakdownParts(formatStockingQty(this.value)); const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value); const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value); generateRemarksInputs(parts.length, currentRemarks, currentLocations); updateEditBreakdownPreview(); });
         dynamicRemarksContainer.addEventListener('input', function(event) { if (event.target.classList.contains('remark-part-input') || event.target.classList.contains('location-part-input')) { updateEditBreakdownPreview(); } });
         saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryToLocalStorage(); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); editBreakdownModal.style.display = 'none'; });
-        deleteItemInModalButton.addEventListener('click', () => { if (!currentEditingRow) return; const codeToDelete = currentEditingRow.dataset.code; if (confirm(`Are you sure you want to delete ${codeToDelete}?`)) { const index = originalRowsOrder.findIndex(row => row === currentEditingRow); if (index > -1) originalRowsOrder.splice(index, 1); applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.'); editBreakdownModal.style.display = 'none'; } });
+        deleteItemInModalButton.addEventListener('click', async () => { if (!currentEditingRow) return; const codeToDelete = currentEditingRow.dataset.code; if (await customConfirm(`Are you sure you want to delete ${codeToDelete}?`)) { const index = originalRowsOrder.findIndex(row => row === currentEditingRow); if (index > -1) originalRowsOrder.splice(index, 1); applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.'); editBreakdownModal.style.display = 'none'; } });
         editBreakdownModal.addEventListener('keydown', function(event) { if (event.key === 'Enter') { event.preventDefault(); saveBreakdownButton.click(); } });
 
         userNameInput.addEventListener('input', () => {
@@ -2482,14 +2561,14 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             const newTotal = calculateSingleStockingQtyTotal(formatStockingQty(newQtyStr));
 
             if (newTotal > maxWithdrawable) {
-                alert(`Cannot withdraw ${newTotal.toLocaleString()}.\nOnly ${maxWithdrawable.toLocaleString()} is available for ${code}.`);
+                showToast(`Cannot withdraw ${newTotal.toLocaleString()}. Only ${maxWithdrawable.toLocaleString()} is available for ${code}.`, 'error');
                 // Re-render to revert the input field to the previous valid state
                 renderWithdrawList();
                 return;
             }
 
             if (newTotal <= 0) {
-                alert('Please enter a valid quantity greater than 0.');
+                showToast('Please enter a valid quantity greater than 0.', 'error');
                 renderWithdrawList();
                 return;
             }
@@ -2688,13 +2767,13 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             bulkWithdrawModal.style.display = 'none';
         });
 
-        confirmBulkWithdrawButton.addEventListener('click', () => {
+        confirmBulkWithdrawButton.addEventListener('click', async () => {
             if (pendingBulkWithdrawals.length === 0) {
                 bulkWithdrawErrorMessage.textContent = 'Please enter a quantity for at least one item.';
                 return;
             }
 
-            if (!confirm(`You are about to withdraw from ${pendingBulkWithdrawals.length} item(s). Continue?`)) {
+            if (!(await customConfirm(`You are about to withdraw from ${pendingBulkWithdrawals.length} item(s). Continue?`))) {
                 return;
             }
 
@@ -2716,7 +2795,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 saveInventoryToLocalStorage();
                 applyFiltersAndSort();
                 logTransaction('BULK WITHDRAW', `${successfulWithdrawals} items`, transactionDetails.join(', '));
-                alert(`Successfully withdrew from ${successfulWithdrawals} item(s).`);
+                showToast(`Successfully withdrew from ${successfulWithdrawals} item(s).`, 'success');
                 bulkWithdrawModal.style.display = 'none';
             }
         });
