@@ -15,6 +15,20 @@
 <body>
     <canvas id="bg-particles"></canvas>
     <div class="container">        <h1>Cohin Inventory System</h1>
+        <div class="stat-summary-grid" id="statSummaryGrid">
+            <div class="stat-summary-card">
+                <div class="stat-summary-label">Total SKUs</div>
+                <div class="stat-summary-value" id="statTotalSkus">0</div>
+            </div>
+            <div class="stat-summary-card">
+                <div class="stat-summary-label">Currently shown</div>
+                <div class="stat-summary-value" id="statShownSkus">0</div>
+            </div>
+            <div class="stat-summary-card is-flag">
+                <div class="stat-summary-label">On hold</div>
+                <div class="stat-summary-value" id="statHoldSkus">0</div>
+            </div>
+        </div>
         <div class="info-bar">
             <div class="info-item"> <label for="userName">User:</label> <input type="text" id="userName" placeholder="Your name" style="width: 150px;"> </div>
             <div class="info-item"> <label for="currentDate">Date:</label> <input type="date" id="currentDate"> </div>
@@ -1151,6 +1165,25 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
             // Also filter Transaction History
             renderHistoryLog(searchTerm);
+
+            // Update glass-theme summary cards
+            updateStatSummaryCards(rowsToShow.length);
+        }
+
+        function updateStatSummaryCards(shownCount) {
+            const totalEl = document.getElementById('statTotalSkus');
+            const shownEl = document.getElementById('statShownSkus');
+            const holdEl = document.getElementById('statHoldSkus');
+            if (!totalEl || !shownEl || !holdEl) return;
+
+            const holdCount = originalRowsOrder.filter(row => {
+                const remarks = JSON.parse(row.dataset.remarks || '[]').map(r => r.toLowerCase().trim());
+                return remarks.some(r => r.startsWith('hold'));
+            }).length;
+
+            totalEl.textContent = originalRowsOrder.length.toLocaleString();
+            shownEl.textContent = shownCount.toLocaleString();
+            holdEl.textContent = holdCount.toLocaleString();
         }
         function exportReportFile() { const dataForExport = [['MATERIAL CODE', 'Stocking Qty', 'Total per Row', 'Remarks', 'Building/Rack']]; originalRowsOrder.forEach(row => { const code = row.dataset.code; const stockingQty = row.dataset.stockingQty; const formula = convertToExcelFormula(stockingQty); const remarks = JSON.parse(row.dataset.remarks || '[]').join(' | '); const locations = JSON.parse(row.dataset.locations || '[]').filter(l => l).join(' | '); dataForExport.push([code, stockingQty, formula, remarks, locations]); }); if (dataForExport.length <= 1) { alert('No data to export!'); return; } const ws = XLSX.utils.aoa_to_sheet(dataForExport); for (let i = 1; i < dataForExport.length; i++) { const cellAddress = 'C' + (i + 1); const cell = ws[cellAddress]; if (cell && typeof cell.v === 'string' && cell.v.startsWith('=')) { cell.t = 'f'; cell.f = cell.v.substring(1); delete cell.v; } } const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Inventory Data"); XLSX.writeFile(wb, generateBackupFilename().replace("backup_", "report_")); logTransaction('EXPORT REPORT', '-', 'Human-readable report exported.'); }
         function printInventory() {
