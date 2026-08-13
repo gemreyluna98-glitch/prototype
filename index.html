@@ -22,7 +22,7 @@
             </div>
             <div class="stat-summary-card">
                 <div class="stat-summary-label">Currently shown</div>
-                <div class="stat-summary-value" id="statShownSkus">0</div>
+                <div class="stat-summary-value is-accent" id="statShownSkus">0</div>
             </div>
             <div class="stat-summary-card is-flag">
                 <div class="stat-summary-label">On hold</div>
@@ -2425,7 +2425,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         printInventoryButton.addEventListener('click', () => { printInventory(); fileOpsModal.style.display = 'none'; });
         cancelClearChoice.addEventListener('click', () => { clearChoiceModal.style.display = 'none'; });
         triggerClearAllButton.addEventListener('click', () => { if(confirm('This will delete all items in the inventory. Are you sure?')) { inventoryTableBody.innerHTML = ''; originalRowsOrder = []; applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('CLEAR ALL', '-', 'All inventory data cleared.'); } clearChoiceModal.style.display = 'none'; });
-        triggerBulkClearButton.addEventListener('click', () => { bulkClearFilterSection.querySelectorAll('select').forEach(sel => sel.value = 'ALL'); populateBulkClearList(); clearChoiceModal.style.display = 'none'; bulkClearQtyModal.style.display = 'block'; });
+        triggerBulkClearButton.addEventListener('click', () => { bulkClearFilterSection.querySelectorAll('select').forEach(sel => { sel.value = 'ALL'; if (sel.__syncCustomSelect) sel.__syncCustomSelect(); }); populateBulkClearList(); clearChoiceModal.style.display = 'none'; bulkClearQtyModal.style.display = 'block'; });
         bulkClearFilterSection.querySelectorAll('select').forEach(el => el.addEventListener('input', applyBulkClearFilters));
         bulkSelectAllButton.addEventListener('click', () => { bulkClearList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true); });
         bulkDeselectAllButton.addEventListener('click', () => { bulkClearList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false); });
@@ -2850,6 +2850,115 @@ compareVarianceButton.addEventListener('click', () => {
             const savedUserName = localStorage.getItem('userName');
             if (savedUserName) userNameInput.value = savedUserName;
         });
+    </script>
+
+    <!-- Custom glass-styled dropdowns (replaces native <select> popups, which cannot be
+         restyled by CSS in most browsers). Each native <select> stays in the DOM as the
+         real source of truth — this only builds a styled UI layer on top of it and keeps
+         it in sync, so none of the existing filter/import/bulk logic above needed to change. -->
+    <script>
+    (function () {
+        function wrapNativeSelect(selectEl) {
+            if (selectEl.dataset.customWrapped) return;
+            selectEl.dataset.customWrapped = 'true';
+            selectEl.classList.add('custom-select-native');
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'custom-select-wrapper';
+            selectEl.parentNode.insertBefore(wrapper, selectEl);
+            wrapper.appendChild(selectEl);
+
+            const trigger = document.createElement('button');
+            trigger.type = 'button';
+            trigger.className = 'custom-select-trigger';
+            trigger.innerHTML = '<span class="custom-select-trigger-label"></span><i class="fas fa-chevron-down custom-select-trigger-icon"></i>';
+            wrapper.appendChild(trigger);
+
+            const panel = document.createElement('div');
+            panel.className = 'custom-select-panel';
+            panel.setAttribute('role', 'listbox');
+            wrapper.appendChild(panel);
+
+            const labelEl = trigger.querySelector('.custom-select-trigger-label');
+
+            function renderLabel() {
+                const opt = selectEl.options[selectEl.selectedIndex];
+                labelEl.textContent = opt ? opt.textContent : '';
+            }
+
+            function renderOptions() {
+                panel.innerHTML = '';
+                Array.from(selectEl.options).forEach((opt, idx) => {
+                    const item = document.createElement('div');
+                    item.className = 'custom-select-option' + (idx === selectEl.selectedIndex ? ' is-selected' : '');
+                    item.textContent = opt.textContent;
+                    item.setAttribute('role', 'option');
+                    item.addEventListener('click', () => {
+                        selectEl.selectedIndex = idx;
+                        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+                        renderLabel();
+                        closePanel();
+                    });
+                    panel.appendChild(item);
+                });
+            }
+
+            function openPanel() {
+                document.querySelectorAll('.custom-select-panel.is-open').forEach(p => {
+                    if (p !== panel) { p.classList.remove('is-open'); }
+                });
+                document.querySelectorAll('.custom-select-trigger.is-open').forEach(t => {
+                    if (t !== trigger) { t.classList.remove('is-open'); }
+                });
+                renderOptions();
+                panel.classList.add('is-open');
+                trigger.classList.add('is-open');
+            }
+
+            function closePanel() {
+                panel.classList.remove('is-open');
+                trigger.classList.remove('is-open');
+            }
+
+            trigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (panel.classList.contains('is-open')) { closePanel(); } else { openPanel(); }
+            });
+
+            // Lets existing app code re-sync the visible label after it changes
+            // selectEl.value directly (bypassing user interaction / 'change' events).
+            selectEl.__syncCustomSelect = function () {
+                renderLabel();
+                if (panel.classList.contains('is-open')) renderOptions();
+            };
+
+            // Keeps the dropdown in sync when options are populated at runtime
+            // (e.g. the Excel sheet/column selects in the Import modal).
+            const observer = new MutationObserver(() => {
+                renderLabel();
+                if (panel.classList.contains('is-open')) renderOptions();
+            });
+            observer.observe(selectEl, { childList: true });
+
+            renderLabel();
+        }
+
+        function initCustomSelects() {
+            document.querySelectorAll('select').forEach(wrapNativeSelect);
+            document.addEventListener('click', () => {
+                document.querySelectorAll('.custom-select-panel.is-open').forEach(p => p.classList.remove('is-open'));
+                document.querySelectorAll('.custom-select-trigger.is-open').forEach(t => t.classList.remove('is-open'));
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    document.querySelectorAll('.custom-select-panel.is-open').forEach(p => p.classList.remove('is-open'));
+                    document.querySelectorAll('.custom-select-trigger.is-open').forEach(t => t.classList.remove('is-open'));
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', initCustomSelects);
+    })();
     </script>
 
     <!-- Ambient particle background (glass + glow theme). Purely decorative — does not
