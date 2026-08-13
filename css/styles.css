@@ -218,7 +218,6 @@ h2 {
   border-radius: var(--radius-lg);
   margin-bottom: 18px;
   border: 1px solid var(--glass-border);
-  border-left: 3px solid var(--amber);
 }
 .info-item { display: flex; align-items: center; gap: 8px; }
 .info-item label {
@@ -565,7 +564,6 @@ body.dark-mode tbody tr:hover { background-color: rgba(255, 255, 255, 0.03); }
   border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   width: 90%; max-width: 600px; box-shadow: var(--shadow-2);
-  border-top: 3px solid var(--amber);
 }
 .modal-content h2 { text-align: center; color: var(--ink); margin-bottom: 24px; font-weight: 700; font-size: 1.45em; }
 .item-input { display: flex; flex-direction: column; margin-bottom: 18px; }
