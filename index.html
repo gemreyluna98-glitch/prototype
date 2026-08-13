@@ -2820,18 +2820,26 @@ compareVarianceButton.addEventListener('click', () => {
     </script>
 
     <!-- Ambient particle background (glass + glow theme). Purely decorative — does not
-         touch any inventory logic above. Respects prefers-reduced-motion and skips on
-         narrow/mobile viewports to save battery. -->
+         touch any inventory logic above. Skips only on very narrow viewports to save
+         battery; runs regardless of the OS/browser reduce-motion setting. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
     (function () {
         const canvas = document.getElementById('bg-particles');
-        if (!canvas || typeof THREE === 'undefined') return;
+        if (!canvas) { console.warn('[bg-particles] Skipped: canvas element not found.'); return; }
+        if (typeof THREE === 'undefined') { console.warn('[bg-particles] Skipped: three.min.js did not load (likely blocked by an ad-blocker/extension or network error).'); return; }
+        if (window.innerWidth < 480) {
+            console.warn('[bg-particles] Skipped: viewport narrower than 480px.');
+            return;
+        }
 
-        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (prefersReducedMotion || window.innerWidth < 769) return;
-
-        const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+        let renderer;
+        try {
+            renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+        } catch (err) {
+            console.warn('[bg-particles] Skipped: WebGL context could not be created.', err);
+            return;
+        }
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
@@ -2886,6 +2894,7 @@ compareVarianceButton.addEventListener('click', () => {
             renderer.render(scene, camera);
         }
         animate();
+        console.info('[bg-particles] Running OK.');
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;

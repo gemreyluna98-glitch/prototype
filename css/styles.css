@@ -723,7 +723,9 @@ hr { border: 0; height: 1px; background: var(--border); margin: 15px 0; }
 body.dark-mode .highlight { background-color: var(--amber); color: #12151C; }
 .developer-link { color: var(--steel); }
 body.dark-mode .developer-link { color: #7FB3D5 !important; }
-#movementFilterOptions { background-color: var(--paper); }
+#movementFilterOptions { background: var(--card) !important; border: 1px solid var(--glass-border); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
+#movementFilterOptions input, #movementFilterOptions select { background-color: var(--card) !important; color: var(--ink) !important; border-color: var(--border) !important; }
+#secondaryFilters { border-top-color: var(--border) !important; }
 #secondaryFilters { border-top-color: var(--border); }
 
 /* Dark-mode edge cases not fully covered by variables above */
@@ -810,6 +812,14 @@ body.dark-mode .bulk-del-item input::placeholder { color: var(--ink-soft); }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+  /* Functional highlight still needs to be visible even without the
+     animation/fade — otherwise clicking a breakdown part in the edit
+     modal appears to do nothing. */
+  .field-flash-highlight {
+    background-color: rgba(184, 121, 30, 0.22) !important;
+    box-shadow: 0 0 0 2px rgba(184, 121, 30, 0.45) !important;
+    border-radius: var(--radius-sm);
+  }
 }
 
 :focus-visible {
