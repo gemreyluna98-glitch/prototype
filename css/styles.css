@@ -1139,3 +1139,92 @@ body.dark-mode .history-detail-row-wrap td { background: rgba(255, 255, 255, 0.0
 }
 .bulk-pending-card-total { white-space: nowrap; font-size: 1.05em; font-weight: bold; color: var(--ink); }
 .bulk-list-empty-text { text-align: center; color: var(--ink-soft); font-family: var(--font-body); }
+
+button:disabled, button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none !important;
+  transform: none !important;
+}
+
+/* ==========================================================================
+   Button loading state (spinner shown while an async confirm/save is in flight)
+   ========================================================================== */
+.btn-spinner { display: none; }
+button.is-loading .btn-label { visibility: hidden; position: absolute; }
+button.is-loading .btn-spinner { display: inline-block; }
+button.is-loading { position: relative; color: transparent; }
+button.is-loading .btn-spinner { color: #fff; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+
+/* ==========================================================================
+   Full-page load overlay — shown while the initial inventory/history fetch
+   from the Cloudflare KV database is in progress.
+   ========================================================================== */
+#pageLoadOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: var(--bg-deep);
+  transition: opacity 0.35s ease;
+}
+#pageLoadOverlay.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.page-load-spinner {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 3px solid var(--border-soft);
+  border-top-color: var(--amber);
+  animation: page-load-spin 0.8s linear infinite;
+  box-shadow: 0 0 18px var(--amber-glow);
+}
+@keyframes page-load-spin {
+  to { transform: rotate(360deg); }
+}
+.page-load-text {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+}
+
+/* ==========================================================================
+   Persistent "Saving…" indicator (bottom-right, appears during any actual
+   database write regardless of which button triggered it)
+   ========================================================================== */
+#saveStatusIndicator {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius);
+  background: var(--card);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+#saveStatusIndicator.is-visible { opacity: 1; transform: translateY(0); }
+#saveStatusIndicator i { color: var(--amber); }
+@media (max-width: 768px) {
+  #saveStatusIndicator { bottom: 12px; right: 12px; left: 12px; justify-content: center; }
+}
