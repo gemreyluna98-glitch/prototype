@@ -1095,18 +1095,4 @@ body.dark-mode #historyTableBody .history-row:hover { background-color: rgba(255
   white-space: normal;
 }
 body.dark-mode .history-detail-row-wrap td { background: rgba(255, 255, 255, 0.02); }
-.history-detail { display: flex; flex-direction: column; gap: 6px; }
-.history-detail-row-item {
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  color: var(--ink);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.history-detail-label { color: var(--ink-soft); font-weight: 600; min-width: 80px; }
-.history-detail-old { color: var(--red); text-decoration: line-through; opacity: 0.75; }
-.history-detail-new { color: var(--green); font-weight: 600; }
-.history-detail-row-item i { color: var(--ink-soft); font-size: 0.8em; }
 .history-detail-empty { color: var(--ink-soft); font-size: 0.88em; font-style: italic; font-family: var(--font-body); }

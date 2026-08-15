@@ -825,24 +825,22 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         function loadInventoryFromLocalStorage() {}
         function saveHistoryToLocalStorage() { saveDataToAPI(['transactionHistory']); }
         function logTransaction(action, code = '-', details = '', meta = null) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); renderHistoryLog(searchBar.value.toLowerCase()); saveHistoryToLocalStorage(); }
-        function getActionBadgeClass(action) {
+        function getHistoryRowBadgeClass(action) {
             const a = (action || '').toUpperCase();
             if (a.includes('DELETE') || a.includes('CLEAR')) return 'history-badge-red';
             if (a.includes('DELIVERY') || a.includes('RESTORE') || a.includes('IMPORT')) return 'history-badge-green';
             if (a.includes('EDIT') || a.includes('WITHDRAW')) return 'history-badge-amber';
             return 'history-badge-blue'; // EXPORT, PRINT, BACKUP
         }
+        // Reuses the same color-coded breakdown compare used in the per-item Detailed
+        // Report (orange=Hold, pink=Approved, green=First Out/Old, grey=default) so the
+        // Transaction History expand view matches it instead of showing plain text.
         function buildHistoryDetailHtml(log) {
-            if (!log.meta) {
-                return '<div class="history-detail-empty">No additional details for this entry.</div>';
-            }
-            const m = log.meta;
-            const joinOrNone = (arr) => (Array.isArray(arr) ? arr.filter(Boolean).join(', ') : '') || '(none)';
-            return `<div class="history-detail">
-                <div class="history-detail-row-item"><span class="history-detail-label">Qty:</span> <span class="history-detail-old">${m.oldQty || '(empty)'}</span> <i class="fas fa-arrow-right"></i> <span class="history-detail-new">${m.newQty || '(empty)'}</span></div>
-                <div class="history-detail-row-item"><span class="history-detail-label">Remarks:</span> <span class="history-detail-old">${joinOrNone(m.oldRemarks)}</span> <i class="fas fa-arrow-right"></i> <span class="history-detail-new">${joinOrNone(m.newRemarks)}</span></div>
-                <div class="history-detail-row-item"><span class="history-detail-label">Bldg/Rack:</span> <span class="history-detail-old">${joinOrNone(m.oldLocations)}</span> <i class="fas fa-arrow-right"></i> <span class="history-detail-new">${joinOrNone(m.newLocations)}</span></div>
-            </div>`;
+            const compareHTML = log.action === 'EDIT ITEM' ? buildBreakdownCompareHTML(log.meta)
+                : log.action === 'DELIVERY (BULK)' ? buildBreakdownCompareHTML(log.meta, 'Added')
+                : null;
+            if (compareHTML) return compareHTML;
+            return '<div class="history-detail-empty">No additional details for this entry.</div>';
         }
         function renderHistoryLog(searchTerm = '') {
             historyTableBody.innerHTML = '';
@@ -875,7 +873,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 row.classList.add('history-row');
                 const formattedDate = new Date(log.timestamp).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
                 row.insertCell(0).textContent = formattedDate;
-                row.insertCell(1).innerHTML = `<span class="history-badge ${getActionBadgeClass(log.action)}">${highlightMatch(log.action, searchTerm)}</span>`;
+                row.insertCell(1).innerHTML = `<span class="history-badge ${getHistoryRowBadgeClass(log.action)}">${highlightMatch(log.action, searchTerm)}</span>`;
                 row.insertCell(2).innerHTML = highlightMatch(log.code, searchTerm);
                 row.insertCell(3).innerHTML = highlightMatch(log.details, searchTerm);
 
