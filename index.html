@@ -2072,23 +2072,23 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
         function renderBulkList(){
             if(!pendingBulkDeliveries.length){
-                bulkDeliveryList.innerHTML='<p style="text-align:center;color:#999;">No items added.</p>';
+                bulkDeliveryList.innerHTML='<p class="bulk-list-empty-text">No items added.</p>';
                 return;
             }
             bulkDeliveryList.innerHTML = pendingBulkDeliveries.map((i,idx)=>`
-                <div class="bulk-del-item" style="flex-direction: column; align-items: stretch; gap: 10px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb; margin-bottom: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <input type="text" value="${i.code}" oninput="updatePendingItem(${idx}, 'code', this.value)" style="font-weight: bold; border: none; background: transparent; font-size: 1.1em; width: 80%;" placeholder="Material Code">
-                        <button onclick="removeBulkDeliveryItem(${idx})" style="background: #ef4444; color: white; border: none; border-radius: 6px; padding: 4px 8px; cursor: pointer;"><i class="fas fa-times"></i></button>
+                <div class="bulk-pending-card">
+                    <div class="bulk-pending-card-header">
+                        <input type="text" value="${i.code}" oninput="updatePendingItem(${idx}, 'code', this.value)" placeholder="Material Code">
+                        <button class="bulk-pending-card-remove" onclick="removeBulkDeliveryItem(${idx})"><i class="fas fa-times"></i></button>
                     </div>
-                    <div style="display: flex; gap: 10px;">
-                        <div class="item-input" style="flex: 1; margin-bottom: 0;">
-                            <label style="font-size: 0.8em; margin-bottom: 2px;">Qty:</label>
-                            <input type="text" value="${i.qty}" oninput="updatePendingItem(${idx}, 'qty', this.value)" style="padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
+                    <div class="bulk-pending-card-row">
+                        <div class="bulk-pending-card-field">
+                            <label>Qty:</label>
+                            <input type="text" value="${i.qty}" oninput="updatePendingItem(${idx}, 'qty', this.value)">
                         </div>
-                        <div class="item-input" style="flex: 2; margin-bottom: 0;">
-                            <label style="font-size: 0.8em; margin-bottom: 2px;">Remarks:</label>
-                            <input type="text" value="${i.remarks}" oninput="updatePendingItem(${idx}, 'remarks', this.value)" style="padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
+                        <div class="bulk-pending-card-field" style="flex: 2;">
+                            <label>Remarks:</label>
+                            <input type="text" value="${i.remarks}" oninput="updatePendingItem(${idx}, 'remarks', this.value)">
                         </div>
                     </div>
                 </div>
@@ -2563,23 +2563,23 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
         function renderWithdrawList() {
             if (!pendingBulkWithdrawals.length) {
-                pendingWithdrawalListContainer.innerHTML = '<p style="text-align:center;color:#999;">No items added.</p>';
+                pendingWithdrawalListContainer.innerHTML = '<p class="bulk-list-empty-text">No items added.</p>';
                 return;
             }
             pendingWithdrawalListContainer.innerHTML = pendingBulkWithdrawals.map((item, idx) => {
                 const totalWithdrawQty = calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
                 return `
-                <div class="bulk-del-item" style="flex-direction: column; align-items: stretch; gap: 10px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb; margin-bottom: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-weight: bold; font-size: 1.2em;">${item.code}</span>
-                        <button onclick="removeWithdrawalItem(${idx})" style="background: #ef4444; color: white; border: none; border-radius: 6px; padding: 4px 8px; cursor: pointer;"><i class="fas fa-times"></i></button>
+                <div class="bulk-pending-card">
+                    <div class="bulk-pending-card-header">
+                        <span class="bulk-pending-card-code">${item.code}</span>
+                        <button class="bulk-pending-card-remove" onclick="removeWithdrawalItem(${idx})"><i class="fas fa-times"></i></button>
                     </div>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <div class="item-input" style="flex: 1; margin-bottom: 0;">
-                            <label style="font-size: 0.9em; margin-bottom: 4px;" class="withdraw-qty-label">Qty Breakdown:</label>
-                            <input type="text" value="${item.qty}" onchange="updateWithdrawalItemQty(${idx}, this.value, '${item.code}')" style="padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1.1em; font-weight: bold;">
+                    <div class="bulk-pending-card-row">
+                        <div class="bulk-pending-card-field">
+                            <label class="withdraw-qty-label">Qty Breakdown:</label>
+                            <input type="text" value="${item.qty}" onchange="updateWithdrawalItemQty(${idx}, this.value, '${item.code}')">
                         </div>
-                        <div style="white-space: nowrap; font-size: 1.1em; font-weight: bold;" class="withdraw-total-label">
+                        <div class="bulk-pending-card-total withdraw-total-label">
                             Total: ${totalWithdrawQty.toLocaleString()}
                         </div>
                     </div>
