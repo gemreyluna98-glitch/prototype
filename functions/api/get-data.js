@@ -8,7 +8,6 @@ const corsHeaders = {
 export async function onRequestGet(context) {
   const { env } = context;
 
-  // Check if KV namespace is bound
   if (!env.COHIN_KV) {
     return Response.json(
       { error: 'KV namespace COHIN_KV is not bound. Please set it up in Cloudflare Pages settings.' },
@@ -17,16 +16,45 @@ export async function onRequestGet(context) {
   }
 
   try {
-    // Fetch all three keys from Cloudflare KV in parallel
-    const [inventoryDataStr, transactionHistoryStr, palletCapacitiesStr] = await Promise.all([
+    // Schema (built around the KV free-tier's 1,000 writes/day cap):
+    //  - "cohin_inventoryData": full snapshot blob. Only (re)written by
+    //    full-replace operations (Restore, Import, Clear All) -> ALWAYS
+    //    just 1 write, no matter how many items are in it.
+    //  - "item_index": codes that have changed since that snapshot was
+    //    taken (day-to-day edits, deliveries, withdrawals).
+    //  - "item:{code}": the latest data for a changed item, or a
+    //    tombstone { code, deleted: true } if it was deleted since the
+    //    snapshot. Only these touched items ever cost a write.
+    // Read = snapshot, with the touched items layered on top.
+    const [snapshotStr, itemIndexStr, transactionHistoryStr, palletCapacitiesStr] = await Promise.all([
       env.COHIN_KV.get('cohin_inventoryData'),
+      env.COHIN_KV.get('item_index'),
       env.COHIN_KV.get('cohin_transactionHistory'),
       env.COHIN_KV.get('cohin_palletCapacities'),
     ]);
 
+    const baseItems = snapshotStr ? JSON.parse(snapshotStr) : [];
+    const itemMap = new Map(baseItems.map(item => [item.code, item]));
+
+    const changedCodes = itemIndexStr ? JSON.parse(itemIndexStr) : [];
+    if (changedCodes.length > 0) {
+      const overrideValues = await Promise.all(
+        changedCodes.map(code => env.COHIN_KV.get(`item:${code}`))
+      );
+      changedCodes.forEach((code, i) => {
+        const raw = overrideValues[i];
+        if (!raw) { itemMap.delete(code); return; }
+        const parsed = JSON.parse(raw);
+        if (parsed.deleted) { itemMap.delete(code); }
+        else { itemMap.set(code, parsed); }
+      });
+    }
+
+    const inventoryData = Array.from(itemMap.values());
+
     return Response.json(
       {
-        inventoryData: inventoryDataStr ? JSON.parse(inventoryDataStr) : null,
+        inventoryData,
         transactionHistory: transactionHistoryStr ? JSON.parse(transactionHistoryStr) : null,
         palletCapacities: palletCapacitiesStr ? JSON.parse(palletCapacitiesStr) : null,
       },
