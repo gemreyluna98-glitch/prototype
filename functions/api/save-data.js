@@ -66,12 +66,24 @@ export async function onRequestPost(context) {
       // ---- Legacy full-array replace path ----
       // Used for operations that legitimately touch everything (import,
       // restore from backup, clear all). Rewrites every item key plus
-      // the index in one go.
+      // the index in one go, and cleans up any item keys that no longer
+      // appear in the new data (e.g. items removed by a restore).
+      const oldIndexStr = await env.COHIN_KV.get('item_index');
+      const oldCodes = oldIndexStr ? JSON.parse(oldIndexStr) : [];
+
       const itemCodes = [];
       for (const item of inventoryData) {
         itemCodes.push(item.code);
         saves.push(env.COHIN_KV.put(`item:${item.code}`, JSON.stringify(item)));
       }
+
+      const newCodeSet = new Set(itemCodes);
+      for (const oldCode of oldCodes) {
+        if (!newCodeSet.has(oldCode)) {
+          saves.push(env.COHIN_KV.delete(`item:${oldCode}`));
+        }
+      }
+
       saves.push(env.COHIN_KV.put('item_index', JSON.stringify(itemCodes)));
       // Clean up the old single-blob key so we don't keep two copies around.
       saves.push(env.COHIN_KV.delete('cohin_inventoryData'));
