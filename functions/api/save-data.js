@@ -80,6 +80,15 @@ export async function onRequestPost(context) {
         for (const code of deleted) codeSet.delete(code);
         itemCodes = Array.from(codeSet);
         saves.push(env.COHIN_KV.put('item_index', JSON.stringify(itemCodes)));
+
+        // ALSO update delta_index (small key) so read-path can fetch only changed codes
+        const deltaIndexStr = await env.COHIN_KV.get('delta_index');
+        let deltaCodes = deltaIndexStr ? JSON.parse(deltaIndexStr) : [];
+        const deltaSet = new Set(deltaCodes);
+        for (const item of changed) deltaSet.add(item.code);
+        for (const code of deleted) deltaSet.add(code);
+        deltaCodes = Array.from(deltaSet);
+        saves.push(env.COHIN_KV.put('delta_index', JSON.stringify(deltaCodes)));
       }
     } else if (inventoryData !== undefined) {
       // ---- Full snapshot replace path (used only for restore/import/clear all) ----
@@ -95,6 +104,9 @@ export async function onRequestPost(context) {
       // update item_index to reflect the baseline content (small write)
       const itemCodes = inventoryData.map(it => it.code);
       saves.push(env.COHIN_KV.put('item_index', JSON.stringify(itemCodes)));
+
+      // Clear delta_index since snapshot supersedes old deltas
+      saves.push(env.COHIN_KV.put('delta_index', JSON.stringify([])));
 
       // Note: do NOT mass-delete item:{code} keys here — that would blow write quota.
       // Old deltas with baseSnapshot < newSnapshot will automatically be ignored by readers.
