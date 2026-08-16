@@ -29,31 +29,50 @@ export async function onRequestPost(context) {
 
   try {
     const {
-      inventoryData,     // legacy: full-array replace (still supported)
-      changedItems,      // new: only the items that actually changed
-      deletedCodes,       // new: item codes to remove
+      inventoryData,    // legacy/full snapshot (write rarely on restore/import/clear all)
+      changedItems,     // small per-item deltas (normal edits)
+      deletedCodes,     // tombstones (normal deletes)
       transactionHistory,
       palletCapacities,
     } = await request.json();
 
+    // We'll collect small per-item delta writes here, plus a few small index/snapshot writes.
     const saves = [];
 
+    // Current baseline snapshot that read-path uses
+    const currentSnapshotStr = await env.COHIN_KV.get('cohin_snapshot');
+    const currentSnapshot = currentSnapshotStr ? Number(currentSnapshotStr) : 0;
+    const now = Date.now();
+
     if (changedItems !== undefined || deletedCodes !== undefined) {
-      // ---- Partial (per-item) update path ----
+      // ---- Partial (per-item) update path using snapshot+overlay ----
       const changed = changedItems || [];
       const deleted = deletedCodes || [];
 
-      // Write only the items that changed.
+      // Write per-item deltas (small writes). Each delta includes baseSnapshot so
+      // read-path knows whether to apply it on top of the current blob snapshot.
       for (const item of changed) {
-        saves.push(env.COHIN_KV.put(`item:${item.code}`, JSON.stringify(item)));
-      }
-      // Remove any deleted items.
-      for (const code of deleted) {
-        saves.push(env.COHIN_KV.delete(`item:${code}`));
+        const delta = {
+          data: item,
+          baseSnapshot: currentSnapshot,
+          deleted: false,
+          updatedAt: now,
+        };
+        saves.push(env.COHIN_KV.put(`item:${item.code}`, JSON.stringify(delta)));
       }
 
+      // Tombstone deletes instead of deleting the key immediately.
+      for (const code of deleted) {
+        const tomb = {
+          baseSnapshot: currentSnapshot,
+          deleted: true,
+          updatedAt: now,
+        };
+        saves.push(env.COHIN_KV.put(`item:${code}`, JSON.stringify(tomb)));
+      }
+
+      // Keep item_index in sync (small key, cheap to rewrite).
       if (changed.length > 0 || deleted.length > 0) {
-        // Keep item_index in sync (small key, cheap to rewrite).
         const indexStr = await env.COHIN_KV.get('item_index');
         let itemCodes = indexStr ? JSON.parse(indexStr) : [];
         const codeSet = new Set(itemCodes);
@@ -63,30 +82,22 @@ export async function onRequestPost(context) {
         saves.push(env.COHIN_KV.put('item_index', JSON.stringify(itemCodes)));
       }
     } else if (inventoryData !== undefined) {
-      // ---- Legacy full-array replace path ----
-      // Used for operations that legitimately touch everything (import,
-      // restore from backup, clear all). Rewrites every item key plus
-      // the index in one go, and cleans up any item keys that no longer
-      // appear in the new data (e.g. items removed by a restore).
-      const oldIndexStr = await env.COHIN_KV.get('item_index');
-      const oldCodes = oldIndexStr ? JSON.parse(oldIndexStr) : [];
+      // ---- Full snapshot replace path (used only for restore/import/clear all) ----
+      // Snapshot+overlay strategy: write the full baseline blob and bump the snapshot.
+      // We DO NOT attempt to delete every per-item delta key here; old deltas will be ignored
+      // by the read path because their baseSnapshot < newSnapshot.
+      const newSnapshot = Date.now();
 
-      const itemCodes = [];
-      for (const item of inventoryData) {
-        itemCodes.push(item.code);
-        saves.push(env.COHIN_KV.put(`item:${item.code}`, JSON.stringify(item)));
-      }
+      // persist baseline blob and new snapshot
+      saves.push(env.COHIN_KV.put('cohin_inventoryData', JSON.stringify(inventoryData)));
+      saves.push(env.COHIN_KV.put('cohin_snapshot', String(newSnapshot)));
 
-      const newCodeSet = new Set(itemCodes);
-      for (const oldCode of oldCodes) {
-        if (!newCodeSet.has(oldCode)) {
-          saves.push(env.COHIN_KV.delete(`item:${oldCode}`));
-        }
-      }
-
+      // update item_index to reflect the baseline content (small write)
+      const itemCodes = inventoryData.map(it => it.code);
       saves.push(env.COHIN_KV.put('item_index', JSON.stringify(itemCodes)));
-      // Clean up the old single-blob key so we don't keep two copies around.
-      saves.push(env.COHIN_KV.delete('cohin_inventoryData'));
+
+      // Note: do NOT mass-delete item:{code} keys here — that would blow write quota.
+      // Old deltas with baseSnapshot < newSnapshot will automatically be ignored by readers.
     }
 
     if (transactionHistory !== undefined) {
@@ -96,6 +107,7 @@ export async function onRequestPost(context) {
       saves.push(env.COHIN_KV.put('cohin_palletCapacities', JSON.stringify(palletCapacities)));
     }
 
+    // Run all small writes in parallel. If a write fails it will throw and be returned as error.
     await Promise.all(saves);
 
     return Response.json(
