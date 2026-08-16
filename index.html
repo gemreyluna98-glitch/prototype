@@ -768,38 +768,19 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             el.classList.toggle('is-visible', activeSaveCount > 0);
         }
 
-        async function saveDataToAPI(dataToSave, invOptions = {}) {
+        async function saveDataToAPI(dataToSave) {
             showSaveIndicator(true);
             try {
                 const payload = {};
                 const currentPassword = localStorage.getItem('systemPassword') || DEFAULT_PASSWORD;
 
                 if (dataToSave.includes('inventoryData')) {
-                    const { changedCodes, deletedCodes } = invOptions;
-                    if (changedCodes || deletedCodes) {
-                        // Partial update: only send the rows that actually changed.
-                        if (changedCodes && changedCodes.length) {
-                            payload.changedItems = changedCodes
-                                .map(code => originalRowsOrder.find(row => row.dataset.code === code))
-                                .filter(Boolean)
-                                .map(row => ({
-                                    code: row.dataset.code,
-                                    stockingQty: row.dataset.stockingQty,
-                                    remarks: row.dataset.remarks,
-                                    locations: row.dataset.locations
-                                }));
-                        }
-                        if (deletedCodes && deletedCodes.length) {
-                            payload.deletedCodes = deletedCodes;
-                        }
-                    } else {
-                        payload.inventoryData = originalRowsOrder.map(row => ({
-                            code: row.dataset.code,
-                            stockingQty: row.dataset.stockingQty,
-                            remarks: row.dataset.remarks,
-                            locations: row.dataset.locations
-                        }));
-                    }
+                    payload.inventoryData = originalRowsOrder.map(row => ({
+                        code: row.dataset.code,
+                        stockingQty: row.dataset.stockingQty,
+                        remarks: row.dataset.remarks,
+                        locations: row.dataset.locations
+                    }));
                 }
                 if (dataToSave.includes('transactionHistory')) {
                     payload.transactionHistory = transactionHistory;
@@ -885,10 +866,10 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             }
         }
 
-        function saveInventoryToLocalStorage(changedCodes = null, deletedCodes = null) { saveDataToAPI(['inventoryData'], { changedCodes, deletedCodes }); }
+        function saveInventoryToLocalStorage() { saveDataToAPI(['inventoryData']); }
         function loadInventoryFromLocalStorage() {}
         function saveHistoryToLocalStorage() { saveDataToAPI(['transactionHistory']); }
-        function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); if (skipSync) return; renderHistoryLog(searchBar.value.toLowerCase()); saveHistoryToLocalStorage(); }
+        function logTransaction(action, code = '-', details = '', meta = null) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); renderHistoryLog(searchBar.value.toLowerCase()); saveHistoryToLocalStorage(); }
         function getHistoryRowBadgeClass(action) {
             const a = (action || '').toUpperCase();
             if (a.includes('DELETE') || a.includes('CLEAR')) return 'history-badge-red';
@@ -2485,7 +2466,6 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             }
 
             let successCount = 0;
-            const changedCodes = [];
             pendingBulkDeliveries.forEach(d => {
                 let row = originalRowsOrder.find(r => r.dataset.code === d.code);
 
@@ -2513,15 +2493,11 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 row.cells[3].textContent = finalRemarks.filter(r => r).join(' | ');
 
                 const added = calculateSingleStockingQtyTotal(formattedNew);
-                logTransaction('DELIVERY (BULK)', d.code, `+${added.toLocaleString()} pcs`, { oldQty, oldRemarks, newQty: combined, newRemarks: finalRemarks, addedQty: formattedNew, addedRemarks: specificRemarks }, true);
-                changedCodes.push(d.code);
+                logTransaction('DELIVERY (BULK)', d.code, `+${added.toLocaleString()} pcs`, { oldQty, oldRemarks, newQty: combined, newRemarks: finalRemarks, addedQty: formattedNew, addedRemarks: specificRemarks });
                 successCount++;
             });
 
-            // One render + one save for the whole batch, instead of one per item.
-            renderHistoryLog(searchBar.value.toLowerCase());
-            saveHistoryToLocalStorage();
-            saveInventoryToLocalStorage(changedCodes);
+            saveInventoryToLocalStorage();
             applyFiltersAndSort();
             bulkDeliveriesModal.style.display = 'none';
             showToast(`Successfully saved ${successCount} deliveries.`, 'success');
@@ -2641,7 +2617,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 const codesToClear = selectedCheckboxes.map(cb => cb.value);
                 if (await customConfirm(`Are you sure you want to clear the quantity for ${codesToClear.length} selected item(s)?`)) {
                     codesToClear.forEach(code => { const targetRow = originalRowsOrder.find(row => row.dataset.code === code); if (targetRow) { targetRow.dataset.stockingQty = ''; targetRow.dataset.remarks = '[]'; targetRow.dataset.locations = '[]'; targetRow.cells[1].innerHTML = ''; targetRow.cells[2].textContent = '0'; targetRow.cells[3].textContent = ''; } });
-                    saveInventoryToLocalStorage(codesToClear);
+                    saveInventoryToLocalStorage();
                     logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : ''));
                     applyFiltersAndSort();
                     showToast(`Successfully cleared quantities for ${codesToClear.length} item(s).`, 'success');
@@ -2662,13 +2638,13 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         });
         editBreakdownInput.addEventListener('input', function() { const parts = getBreakdownParts(formatStockingQty(this.value)); const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value); const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value); generateRemarksInputs(parts.length, currentRemarks, currentLocations); updateEditBreakdownPreview(); });
         dynamicRemarksContainer.addEventListener('input', function(event) { if (event.target.classList.contains('remark-part-input') || event.target.classList.contains('location-part-input')) { updateEditBreakdownPreview(); } });
-        saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryToLocalStorage([currentEditingRow.dataset.code]); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); showToast('Item updated.', 'success'); editBreakdownModal.style.display = 'none'; });
+        saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryToLocalStorage(); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); showToast('Item updated.', 'success'); editBreakdownModal.style.display = 'none'; });
         deleteItemInModalButton.addEventListener('click', async () => {
             if (!currentEditingRow) return;
             const codeToDelete = currentEditingRow.dataset.code;
             setButtonLoading(deleteItemInModalButton, true);
             try {
-                if (await customConfirm(`Are you sure you want to delete ${codeToDelete}?`)) { const index = originalRowsOrder.findIndex(row => row === currentEditingRow); if (index > -1) originalRowsOrder.splice(index, 1); applyFiltersAndSort(); saveInventoryToLocalStorage(null, [codeToDelete]); logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.'); editBreakdownModal.style.display = 'none'; }
+                if (await customConfirm(`Are you sure you want to delete ${codeToDelete}?`)) { const index = originalRowsOrder.findIndex(row => row === currentEditingRow); if (index > -1) originalRowsOrder.splice(index, 1); applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.'); editBreakdownModal.style.display = 'none'; }
             } finally {
                 setButtonLoading(deleteItemInModalButton, false);
             }
@@ -2940,7 +2916,6 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
                 let successfulWithdrawals = 0;
                 let transactionDetails = [];
-                const changedCodes = [];
 
                 pendingBulkWithdrawals.forEach(item => {
                     const totalWithdrawQty = calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
@@ -2948,14 +2923,13 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                     if (result.success) {
                         successfulWithdrawals++;
                         transactionDetails.push(`${item.code} (-${totalWithdrawQty.toLocaleString()})`);
-                        changedCodes.push(item.code);
                     } else {
                         console.error(result.message);
                     }
                 });
 
                 if (successfulWithdrawals > 0) {
-                    saveInventoryToLocalStorage(changedCodes);
+                    saveInventoryToLocalStorage();
                     applyFiltersAndSort();
                     logTransaction('BULK WITHDRAW', `${successfulWithdrawals} items`, transactionDetails.join(', '));
                     showToast(`Successfully withdrew from ${successfulWithdrawals} item(s).`, 'success');
