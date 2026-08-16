@@ -28,14 +28,55 @@ export async function onRequestPost(context) {
   }
 
   try {
-    const { inventoryData, transactionHistory, palletCapacities } = await request.json();
+    const {
+      inventoryData,     // legacy: full-array replace (still supported)
+      changedItems,      // new: only the items that actually changed
+      deletedCodes,       // new: item codes to remove
+      transactionHistory,
+      palletCapacities,
+    } = await request.json();
 
-    // Save all provided keys to Cloudflare KV in parallel
     const saves = [];
 
-    if (inventoryData !== undefined) {
-      saves.push(env.COHIN_KV.put('cohin_inventoryData', JSON.stringify(inventoryData)));
+    if (changedItems !== undefined || deletedCodes !== undefined) {
+      // ---- Partial (per-item) update path ----
+      const changed = changedItems || [];
+      const deleted = deletedCodes || [];
+
+      // Write only the items that changed.
+      for (const item of changed) {
+        saves.push(env.COHIN_KV.put(`item:${item.code}`, JSON.stringify(item)));
+      }
+      // Remove any deleted items.
+      for (const code of deleted) {
+        saves.push(env.COHIN_KV.delete(`item:${code}`));
+      }
+
+      if (changed.length > 0 || deleted.length > 0) {
+        // Keep item_index in sync (small key, cheap to rewrite).
+        const indexStr = await env.COHIN_KV.get('item_index');
+        let itemCodes = indexStr ? JSON.parse(indexStr) : [];
+        const codeSet = new Set(itemCodes);
+        for (const item of changed) codeSet.add(item.code);
+        for (const code of deleted) codeSet.delete(code);
+        itemCodes = Array.from(codeSet);
+        saves.push(env.COHIN_KV.put('item_index', JSON.stringify(itemCodes)));
+      }
+    } else if (inventoryData !== undefined) {
+      // ---- Legacy full-array replace path ----
+      // Used for operations that legitimately touch everything (import,
+      // restore from backup, clear all). Rewrites every item key plus
+      // the index in one go.
+      const itemCodes = [];
+      for (const item of inventoryData) {
+        itemCodes.push(item.code);
+        saves.push(env.COHIN_KV.put(`item:${item.code}`, JSON.stringify(item)));
+      }
+      saves.push(env.COHIN_KV.put('item_index', JSON.stringify(itemCodes)));
+      // Clean up the old single-blob key so we don't keep two copies around.
+      saves.push(env.COHIN_KV.delete('cohin_inventoryData'));
     }
+
     if (transactionHistory !== undefined) {
       saves.push(env.COHIN_KV.put('cohin_transactionHistory', JSON.stringify(transactionHistory)));
     }

@@ -17,16 +17,37 @@ export async function onRequestGet(context) {
   }
 
   try {
-    // Fetch all three keys from Cloudflare KV in parallel
-    const [inventoryDataStr, transactionHistoryStr, palletCapacitiesStr] = await Promise.all([
-      env.COHIN_KV.get('cohin_inventoryData'),
+    // item_index holds just the list of material codes that exist.
+    // Each item's actual data lives in its own "item:{code}" key, so a
+    // single edit no longer has to rewrite (or re-download) every item.
+    const [itemIndexStr, transactionHistoryStr, palletCapacitiesStr] = await Promise.all([
+      env.COHIN_KV.get('item_index'),
       env.COHIN_KV.get('cohin_transactionHistory'),
       env.COHIN_KV.get('cohin_palletCapacities'),
     ]);
 
+    const itemCodes = itemIndexStr ? JSON.parse(itemIndexStr) : null;
+
+    let inventoryData = null;
+
+    if (itemCodes) {
+      // New per-item schema: fetch every item key in parallel.
+      const itemValues = await Promise.all(
+        itemCodes.map(code => env.COHIN_KV.get(`item:${code}`))
+      );
+      inventoryData = itemCodes
+        .map((code, i) => (itemValues[i] ? JSON.parse(itemValues[i]) : null))
+        .filter(Boolean);
+    } else {
+      // Backward-compat fallback: no item_index yet means this KV store
+      // still has data under the old single-blob key (pre-migration).
+      const legacyStr = await env.COHIN_KV.get('cohin_inventoryData');
+      inventoryData = legacyStr ? JSON.parse(legacyStr) : null;
+    }
+
     return Response.json(
       {
-        inventoryData: inventoryDataStr ? JSON.parse(inventoryDataStr) : null,
+        inventoryData,
         transactionHistory: transactionHistoryStr ? JSON.parse(transactionHistoryStr) : null,
         palletCapacities: palletCapacitiesStr ? JSON.parse(palletCapacitiesStr) : null,
       },
