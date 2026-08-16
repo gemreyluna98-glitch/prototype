@@ -869,7 +869,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         function saveInventoryToLocalStorage() { saveDataToAPI(['inventoryData']); }
         function loadInventoryFromLocalStorage() {}
         function saveHistoryToLocalStorage() { saveDataToAPI(['transactionHistory']); }
-        function logTransaction(action, code = '-', details = '', meta = null) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); renderHistoryLog(searchBar.value.toLowerCase()); saveHistoryToLocalStorage(); }
+        function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); if (skipSync) return; renderHistoryLog(searchBar.value.toLowerCase()); saveHistoryToLocalStorage(); }
         function getHistoryRowBadgeClass(action) {
             const a = (action || '').toUpperCase();
             if (a.includes('DELETE') || a.includes('CLEAR')) return 'history-badge-red';
@@ -2493,10 +2493,13 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 row.cells[3].textContent = finalRemarks.filter(r => r).join(' | ');
 
                 const added = calculateSingleStockingQtyTotal(formattedNew);
-                logTransaction('DELIVERY (BULK)', d.code, `+${added.toLocaleString()} pcs`, { oldQty, oldRemarks, newQty: combined, newRemarks: finalRemarks, addedQty: formattedNew, addedRemarks: specificRemarks });
+                logTransaction('DELIVERY (BULK)', d.code, `+${added.toLocaleString()} pcs`, { oldQty, oldRemarks, newQty: combined, newRemarks: finalRemarks, addedQty: formattedNew, addedRemarks: specificRemarks }, true);
                 successCount++;
             });
 
+            // One render + one save for the whole batch, instead of one per item.
+            renderHistoryLog(searchBar.value.toLowerCase());
+            saveHistoryToLocalStorage();
             saveInventoryToLocalStorage();
             applyFiltersAndSort();
             bulkDeliveriesModal.style.display = 'none';
