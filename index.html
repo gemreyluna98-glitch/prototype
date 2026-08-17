@@ -227,6 +227,10 @@
                     <tbody id="historyTableBody"></tbody>
                 </table>
             </div>
+            <div id="historyLoadMoreWrap" style="display:none; text-align:center; margin-top:10px; align-items:center; justify-content:center; gap:10px;">
+                <button id="historyLoadMoreButton" style="padding:8px 16px; border-radius:6px; border:1px solid var(--grey-mid, #ccc); background:#f8f9fa; cursor:pointer;"><i class="fas fa-chevron-down"></i> Load More</button>
+                <span id="historyShownCount" style="color:#6c757d; font-size:0.9em;"></span>
+            </div>
         </div>
     </div>
 
@@ -532,6 +536,9 @@
         searchBar = document.getElementById('searchBar'),
         openImportModalButton = document.getElementById('openImportModalButton'),
         historyTableBody = document.getElementById('historyTableBody'),
+        historyLoadMoreWrap = document.getElementById('historyLoadMoreWrap'),
+        historyLoadMoreButton = document.getElementById('historyLoadMoreButton'),
+        historyShownCount = document.getElementById('historyShownCount'),
         clearHistoryButton = document.getElementById('clearHistoryButton'),
         fileOpsButton = document.getElementById('fileOpsButton'),
         importDataModal = document.getElementById('importDataModal'),
@@ -903,8 +910,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 if (dbData.palletCapacities) {
                     palletCapacities = dbData.palletCapacities;
                 }
-                applyFiltersAndSort();
-                renderHistoryLog(searchBar.value.toLowerCase());
+                applyFiltersAndSort(); // already calls renderHistoryLog internally — no need to call it twice
                 document.getElementById('errorMessage').innerHTML = '';
             } catch (error) {
                 console.error("Database load error:", error);
@@ -962,13 +968,37 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 row.classList.toggle('is-expanded');
             });
         }
+        // History table is paginated client-side: only HISTORY_PAGE_SIZE rows are
+        // built and inserted into the DOM at a time. Without this, every call to
+        // renderHistoryLog (every search keystroke, filter change, and bulk op)
+        // would tear down and rebuild a row pair for the ENTIRE transaction
+        // history — which gets slower and slower as history grows unbounded.
+        const HISTORY_PAGE_SIZE = 50;
+        let historyFilteredCache = [];
+        let historyRenderedCount = 0;
+        let historyCurrentSearchTerm = '';
+
+        function updateHistoryLoadMoreUI() {
+            const remaining = historyFilteredCache.length - historyRenderedCount;
+            if (remaining > 0) {
+                historyLoadMoreWrap.style.display = 'flex';
+                historyShownCount.textContent = `Showing ${historyRenderedCount} of ${historyFilteredCache.length} (${remaining} more)`;
+            } else {
+                historyLoadMoreWrap.style.display = 'none';
+                historyShownCount.textContent = historyFilteredCache.length > 0
+                    ? `Showing all ${historyFilteredCache.length}`
+                    : '';
+            }
+        }
+
         function renderHistoryLog(searchTerm = '') {
             historyTableBody.innerHTML = '';
+            historyCurrentSearchTerm = searchTerm;
             const dateFrom = historyDateFrom.value ? new Date(historyDateFrom.value) : null;
             const dateTo = historyDateTo.value ? new Date(historyDateTo.value) : null;
             if (dateTo) dateTo.setHours(23, 59, 59, 999);
 
-            const filteredHistory = transactionHistory.filter(log => {
+            historyFilteredCache = transactionHistory.filter(log => {
                 const logDate = new Date(log.timestamp);
                 if (dateFrom && logDate < dateFrom) return false;
                 if (dateTo && logDate > dateTo) return false;
@@ -978,7 +1008,9 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                        log.details.toLowerCase().includes(searchTerm) ||
                        log.action.toLowerCase().includes(searchTerm);
             });
-            if (filteredHistory.length === 0) {
+            historyRenderedCount = 0;
+
+            if (historyFilteredCache.length === 0) {
                 const emptyRow = historyTableBody.insertRow();
                 const emptyCell = emptyRow.insertCell(0);
                 emptyCell.colSpan = 99;
@@ -986,10 +1018,23 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 emptyCell.innerHTML = hasAnyLogs
                     ? '<div class="table-empty-state"><i class="fas fa-filter-circle-xmark"></i><span>No transactions match your current filters.</span></div>'
                     : '<div class="table-empty-state"><i class="fas fa-clock-rotate-left"></i><span>No transaction history yet.</span></div>';
+                updateHistoryLoadMoreUI();
                 return;
             }
-            filteredHistory.forEach(log => renderHistoryRowPair(log, searchTerm, false));
+
+            const firstBatch = historyFilteredCache.slice(0, HISTORY_PAGE_SIZE);
+            firstBatch.forEach(log => renderHistoryRowPair(log, searchTerm, false));
+            historyRenderedCount = firstBatch.length;
+            updateHistoryLoadMoreUI();
         }
+
+        function loadMoreHistoryRows() {
+            const nextBatch = historyFilteredCache.slice(historyRenderedCount, historyRenderedCount + HISTORY_PAGE_SIZE);
+            nextBatch.forEach(log => renderHistoryRowPair(log, historyCurrentSearchTerm, false));
+            historyRenderedCount += nextBatch.length;
+            updateHistoryLoadMoreUI();
+        }
+        historyLoadMoreButton.addEventListener('click', loadMoreHistoryRows);
         // Incremental path for a single new log entry (used by logTransaction for
         // day-to-day single actions) — avoids a full historyTableBody rebuild.
         // Falls back to nothing (not a full render) if the entry doesn't pass the
@@ -1011,6 +1056,11 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             }
             if (historyTableBody.querySelector('.table-empty-state')) historyTableBody.innerHTML = '';
             renderHistoryRowPair(log, searchTerm, true);
+            // Keep the pagination cache/count in sync so Load More still shows the
+            // correct remaining count instead of drifting after incremental adds.
+            historyFilteredCache.unshift(log);
+            historyRenderedCount++;
+            updateHistoryLoadMoreUI();
         }
         function loadHistoryFromLocalStorage() {}
 
@@ -2671,7 +2721,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         clearHistoryButton.addEventListener('click', () => { checkAccess(async () => {
             setButtonLoading(clearHistoryButton, true);
             try {
-                if (await customConfirm('Are you sure?')) { transactionHistory = []; historyTableBody.innerHTML = ''; saveHistoryToLocalStorage(); logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); }
+                if (await customConfirm('Are you sure?')) { transactionHistory = []; historyFilteredCache = []; historyRenderedCount = 0; historyTableBody.innerHTML = ''; updateHistoryLoadMoreUI(); saveHistoryToLocalStorage(); logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); }
             } finally {
                 setButtonLoading(clearHistoryButton, false);
             }
