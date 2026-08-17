@@ -422,8 +422,27 @@
     </div>
 
 
-    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
     <script>
+        // ==========================================================================
+        // Lazy-loaded XLSX library. The full xlsx.full.min.js is only needed by
+        // Import/Export/Backup/Restore/Variance-Compare — not on initial page load.
+        // loadXLSX() is idempotent: safe to call every time before touching XLSX.*,
+        // it only fetches the script once and caches the in-flight promise.
+        // ==========================================================================
+        let xlsxLoadPromise = null;
+        function loadXLSX() {
+            if (typeof XLSX !== 'undefined') return Promise.resolve();
+            if (xlsxLoadPromise) return xlsxLoadPromise;
+            xlsxLoadPromise = new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/xlsx/dist/xlsx.full.min.js';
+                script.onload = () => resolve();
+                script.onerror = () => { xlsxLoadPromise = null; reject(new Error('Failed to load XLSX library.')); };
+                document.head.appendChild(script);
+            });
+            return xlsxLoadPromise;
+        }
+
         // ==========================================================================
         // Toast notifications + glass-styled alert/confirm (replaces native
         // window.alert() / window.confirm(), which render as unstyled OS dialogs
@@ -768,7 +787,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             el.classList.toggle('is-visible', activeSaveCount > 0);
         }
 
-        async function saveDataToAPI(dataToSave, invOptions = {}, newHistoryEntries = null) {
+        async function saveDataToAPI(dataToSave, invOptions = {}, newHistoryEntries = null, palletCapOptions = {}) {
             showSaveIndicator(true);
             try {
                 const payload = {};
@@ -809,7 +828,14 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                     }
                 }
                 if (dataToSave.includes('palletCapacities')) {
-                    payload.palletCapacities = palletCapacities;
+                    const { changedCode } = palletCapOptions;
+                    if (changedCode !== undefined) {
+                        // Partial update: only send the one code that changed, so the
+                        // backend can upsert a single row instead of replacing all of them.
+                        payload.changedPalletCapacity = { code: changedCode, capacity: palletCapacities[changedCode] };
+                    } else {
+                        payload.palletCapacities = palletCapacities;
+                    }
                 }
                 const response = await fetch('/api/save-data', {
                     method: 'POST',
@@ -892,7 +918,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         function saveInventoryToLocalStorage(changedCodes = null, deletedCodes = null) { saveDataToAPI(['inventoryData'], { changedCodes, deletedCodes }); }
         function loadInventoryFromLocalStorage() {}
         function saveHistoryToLocalStorage(newEntries = null) { saveDataToAPI(['transactionHistory'], {}, newEntries); }
-        function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); if (skipSync) return newLog; renderHistoryLog(searchBar.value.toLowerCase()); saveHistoryToLocalStorage([newLog]); return newLog; }
+        function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); if (skipSync) return newLog; prependHistoryLog(newLog); saveHistoryToLocalStorage([newLog]); return newLog; }
         function getHistoryRowBadgeClass(action) {
             const a = (action || '').toUpperCase();
             if (a.includes('DELETE') || a.includes('CLEAR')) return 'history-badge-red';
@@ -909,6 +935,32 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 : null;
             if (compareHTML) return compareHTML;
             return '<div class="history-detail-empty">No additional details for this entry.</div>';
+        }
+        // Builds the main row + hidden detail row for one history log entry and
+        // inserts them into historyTableBody. insertAtTop=true inserts at index 0
+        // (used by the incremental prependHistoryLog path); otherwise appends.
+        // Shared by renderHistoryLog (full rebuild) and prependHistoryLog (single
+        // new entry) so both paths stay in sync automatically.
+        function renderHistoryRowPair(log, searchTerm, insertAtTop) {
+            const row = insertAtTop ? historyTableBody.insertRow(0) : historyTableBody.insertRow();
+            row.classList.add('history-row');
+            const formattedDate = new Date(log.timestamp).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+            row.insertCell(0).textContent = formattedDate;
+            row.insertCell(1).innerHTML = `<span class="history-badge ${getHistoryRowBadgeClass(log.action)}">${highlightMatch(log.action, searchTerm)}</span>`;
+            row.insertCell(2).innerHTML = highlightMatch(log.code, searchTerm);
+            row.insertCell(3).innerHTML = highlightMatch(log.details, searchTerm);
+
+            const detailRow = insertAtTop ? historyTableBody.insertRow(1) : historyTableBody.insertRow();
+            detailRow.classList.add('history-detail-row-wrap');
+            detailRow.style.display = 'none';
+            const detailCell = detailRow.insertCell(0);
+            detailCell.colSpan = 99;
+            detailCell.innerHTML = buildHistoryDetailHtml(log);
+
+            row.addEventListener('click', () => {
+                detailRow.style.display = detailRow.style.display === 'none' ? 'table-row' : 'none';
+                row.classList.toggle('is-expanded');
+            });
         }
         function renderHistoryLog(searchTerm = '') {
             historyTableBody.innerHTML = '';
@@ -936,27 +988,29 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                     : '<div class="table-empty-state"><i class="fas fa-clock-rotate-left"></i><span>No transaction history yet.</span></div>';
                 return;
             }
-            filteredHistory.forEach(log => {
-                const row = historyTableBody.insertRow();
-                row.classList.add('history-row');
-                const formattedDate = new Date(log.timestamp).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-                row.insertCell(0).textContent = formattedDate;
-                row.insertCell(1).innerHTML = `<span class="history-badge ${getHistoryRowBadgeClass(log.action)}">${highlightMatch(log.action, searchTerm)}</span>`;
-                row.insertCell(2).innerHTML = highlightMatch(log.code, searchTerm);
-                row.insertCell(3).innerHTML = highlightMatch(log.details, searchTerm);
-
-                const detailRow = historyTableBody.insertRow();
-                detailRow.classList.add('history-detail-row-wrap');
-                detailRow.style.display = 'none';
-                const detailCell = detailRow.insertCell(0);
-                detailCell.colSpan = 99;
-                detailCell.innerHTML = buildHistoryDetailHtml(log);
-
-                row.addEventListener('click', () => {
-                    detailRow.style.display = detailRow.style.display === 'none' ? 'table-row' : 'none';
-                    row.classList.toggle('is-expanded');
-                });
-            });
+            filteredHistory.forEach(log => renderHistoryRowPair(log, searchTerm, false));
+        }
+        // Incremental path for a single new log entry (used by logTransaction for
+        // day-to-day single actions) — avoids a full historyTableBody rebuild.
+        // Falls back to nothing (not a full render) if the entry doesn't pass the
+        // active date/search filters, matching what a full renderHistoryLog would
+        // have shown anyway. Bulk operations and explicit filter changes still use
+        // the full renderHistoryLog path untouched.
+        function prependHistoryLog(log) {
+            const searchTerm = searchBar.value.toLowerCase();
+            const dateFrom = historyDateFrom.value ? new Date(historyDateFrom.value) : null;
+            const dateTo = historyDateTo.value ? new Date(historyDateTo.value) : null;
+            if (dateTo) dateTo.setHours(23, 59, 59, 999);
+            const logDate = new Date(log.timestamp);
+            if ((dateFrom && logDate < dateFrom) || (dateTo && logDate > dateTo)) return;
+            if (searchTerm) {
+                const matches = log.code.toLowerCase().includes(searchTerm) ||
+                                log.details.toLowerCase().includes(searchTerm) ||
+                                log.action.toLowerCase().includes(searchTerm);
+                if (!matches) return;
+            }
+            if (historyTableBody.querySelector('.table-empty-state')) historyTableBody.innerHTML = '';
+            renderHistoryRowPair(log, searchTerm, true);
         }
         function loadHistoryFromLocalStorage() {}
 
@@ -2335,7 +2389,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                             if (match && match[1]) {
                                 bulkDelPalletCapacity.value = match[1];
                                 palletCapacities[code] = match[1];
-                                saveDataToAPI(['palletCapacities']);
+                                saveDataToAPI(['palletCapacities'], {}, null, { changedCode: code });
                             }
                         }
                     } catch (err) {
@@ -2443,7 +2497,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
             if (!isNaN(capacity) && capacity > 0) {
                 palletCapacities[code] = capacity;
-                saveDataToAPI(['palletCapacities']);
+                saveDataToAPI(['palletCapacities'], {}, null, { changedCode: code });
 
                 const totalQty = calculateSingleStockingQtyTotal(formatStockingQty(qty));
                 qty = generateBreakdownWithCapacity(totalQty, capacity);
@@ -2537,7 +2591,16 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             bulkDeliveriesModal.style.display = 'none';
         });
 
-        [itemTypeFilter, remarksFilter, dataPresenceFilter, materialCodeSort, searchBar, moveDateFrom, moveTimeFrom, moveDateTo, moveTimeTo, movementMode].forEach(el => el.addEventListener('input', applyFiltersAndSort));
+        [itemTypeFilter, remarksFilter, dataPresenceFilter, materialCodeSort, moveDateFrom, moveTimeFrom, moveDateTo, moveTimeTo, movementMode].forEach(el => el.addEventListener('input', applyFiltersAndSort));
+        // searchBar fires on every keystroke and drives both the inventory table
+        // and (via applyFiltersAndSort -> renderHistoryLog) the history table, so
+        // debounce it specifically — the other filter controls above fire once
+        // per interaction and don't need it.
+        let searchBarDebounceTimer = null;
+        searchBar.addEventListener('input', () => {
+            clearTimeout(searchBarDebounceTimer);
+            searchBarDebounceTimer = setTimeout(applyFiltersAndSort, 250);
+        });
 
         // Connect legacy and modern movement checkboxes so they mirror each other seamlessly
         const legacyMovement = document.getElementById('enableMovementFilterLegacy');
@@ -2602,7 +2665,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         });
 
         fileOpsButton.addEventListener('click', () => { checkAccess(() => { fileOpsModal.style.display = 'block'; }); });
-        openImportModalButton.addEventListener('click', () => { checkAccess(() => { fileOpsModal.style.display = 'none'; const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = ".xlsx, .xls"; fileInput.onchange = e => handleFileSelect(e.target.files[0]); fileInput.click(); }); });
+        openImportModalButton.addEventListener('click', () => { checkAccess(async () => { await loadXLSX(); fileOpsModal.style.display = 'none'; const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = ".xlsx, .xls"; fileInput.onchange = e => handleFileSelect(e.target.files[0]); fileInput.click(); }); });
 
         clearInventoryButton.addEventListener('click', () => { checkAccess(() => { fileOpsModal.style.display = 'none'; clearChoiceModal.style.display = 'block'; }); });
         clearHistoryButton.addEventListener('click', () => { checkAccess(async () => {
@@ -2620,9 +2683,9 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         }
         });
         cancelFileOps.addEventListener('click', () => { fileOpsModal.style.display = 'none'; });
-        backupButton.addEventListener('click', () => { exportBackupFile(); fileOpsModal.style.display = 'none'; });
-        restoreButton.addEventListener('click', () => { const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = ".xlsx, .xls"; fileInput.onchange = e => importBackupFile(e.target.files[0]); fileInput.click(); fileOpsModal.style.display = 'none'; });
-        exportExcelButton.addEventListener('click', () => { exportReportFile(); fileOpsModal.style.display = 'none'; });
+        backupButton.addEventListener('click', async () => { await loadXLSX(); exportBackupFile(); fileOpsModal.style.display = 'none'; });
+        restoreButton.addEventListener('click', async () => { await loadXLSX(); const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = ".xlsx, .xls"; fileInput.onchange = e => importBackupFile(e.target.files[0]); fileInput.click(); fileOpsModal.style.display = 'none'; });
+        exportExcelButton.addEventListener('click', async () => { await loadXLSX(); exportReportFile(); fileOpsModal.style.display = 'none'; });
         printInventoryButton.addEventListener('click', () => { printInventory(); fileOpsModal.style.display = 'none'; });
         cancelClearChoice.addEventListener('click', () => { clearChoiceModal.style.display = 'none'; });
         triggerClearAllButton.addEventListener('click', async () => {
@@ -2991,13 +3054,14 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             varianceModal.style.display = 'none';
         });
 
-compareVarianceButton.addEventListener('click', () => {
+compareVarianceButton.addEventListener('click', async () => {
             const file = varianceFileInput.files[0];
             if (!file) {
                 varianceErrorMessage.textContent = 'Please select an Excel file.';
                 return;
             }
             varianceErrorMessage.textContent = 'Processing...';
+            await loadXLSX();
 
             const reader = new FileReader();
             reader.onload = (e) => {
@@ -3298,8 +3362,9 @@ compareVarianceButton.addEventListener('click', () => {
         darkModeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
         let twinkleT = 0;
+        let particleAnimFrameId = null;
         function animate() {
-            requestAnimationFrame(animate);
+            particleAnimFrameId = requestAnimationFrame(animate);
             particles.rotation.y += 0.0006;
             particles.rotation.x += 0.0002;
             const pos = geometry.attributes.position.array;
@@ -3318,6 +3383,20 @@ compareVarianceButton.addEventListener('click', () => {
         }
         animate();
         console.info('[bg-particles] Running OK.');
+
+        // Pause the render loop when the tab is backgrounded (Page Visibility API) —
+        // purely decorative, so no reason to burn CPU/battery while unseen. Resumes
+        // cleanly on return since animate() re-arms its own rAF chain.
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (particleAnimFrameId !== null) {
+                    cancelAnimationFrame(particleAnimFrameId);
+                    particleAnimFrameId = null;
+                }
+            } else if (particleAnimFrameId === null) {
+                animate();
+            }
+        });
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;

@@ -28,7 +28,8 @@ export async function onRequestPost(context) {
       deletedCodes,        // day-to-day: item codes removed
       newHistoryEntries,   // day-to-day: only the newly-logged entries
       transactionHistory,  // full-replace: Restore / Clear History
-      palletCapacities,
+      palletCapacities,    // full-replace: Restore
+      changedPalletCapacity, // day-to-day: single code that changed
     } = await request.json();
 
     const statements = [];
@@ -75,7 +76,15 @@ export async function onRequestPost(context) {
       }
     }
 
-    if (palletCapacities !== undefined) {
+    if (changedPalletCapacity !== undefined) {
+      // Partial path: single code changed (auto-detect from remarks, or manual
+      // entry during bulk delivery) — upsert just that one row.
+      statements.push(
+        env.DB.prepare('INSERT OR REPLACE INTO pallet_capacities (code, capacity) VALUES (?, ?)')
+          .bind(changedPalletCapacity.code, changedPalletCapacity.capacity)
+      );
+    } else if (palletCapacities !== undefined) {
+      // Full-replace path (Restore).
       statements.push(env.DB.prepare('DELETE FROM pallet_capacities'));
       for (const code of Object.keys(palletCapacities)) {
         statements.push(
