@@ -8,90 +8,90 @@ const corsHeaders = {
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  if (!env.COHIN_KV) {
+  if (!env.DB) {
     return Response.json(
-      { error: 'KV namespace COHIN_KV is not bound. Please set it up in Cloudflare Pages settings.' },
+      { error: 'D1 database DB is not bound. Add the binding in Pages > Settings > Bindings.' },
       { status: 500, headers: corsHeaders }
     );
   }
 
   const authHeader = request.headers.get('Authorization');
   const expectedPassword = env.SYSTEM_PASSWORD || '101010';
-
   if (!authHeader || authHeader !== `Bearer ${expectedPassword}`) {
-    return Response.json(
-      { error: 'Unauthorized. Incorrect password.' },
-      { status: 401, headers: corsHeaders }
-    );
+    return Response.json({ error: 'Unauthorized. Incorrect password.' }, { status: 401, headers: corsHeaders });
   }
 
   try {
     const {
-      inventoryData,     // full-replace: Restore / Import / Clear All
-      changedItems,      // day-to-day: only the items that actually changed
-      deletedCodes,      // day-to-day: item codes removed
-      transactionHistory,
+      inventoryData,       // full-replace: Restore / Import / Clear All
+      changedItems,        // day-to-day: only items that changed
+      deletedCodes,        // day-to-day: item codes removed
+      newHistoryEntries,   // day-to-day: only the newly-logged entries
+      transactionHistory,  // full-replace: Restore / Clear History
       palletCapacities,
     } = await request.json();
 
-    const saves = [];
+    const statements = [];
 
     if (inventoryData !== undefined) {
-      // ---- Full-replace path (Restore, Import, Clear All) ----
-      // These operations legitimately touch every item, but KV's free
-      // tier only allows 1,000 writes/day -- so we must NEVER turn this
-      // into "one write per item". Instead: write the whole array as a
-      // single snapshot blob (1 write), and reset item_index to empty
-      // (1 write) so reads fall back entirely to the fresh snapshot.
-      // Any previously-touched "item:{code}" keys are simply orphaned
-      // (no longer referenced by item_index) -- harmless, and they'll
-      // just be overwritten again next time that item is individually
-      // edited. Cost: always exactly 2 writes, regardless of inventory size.
-      saves.push(env.COHIN_KV.put('cohin_inventoryData', JSON.stringify(inventoryData)));
-      saves.push(env.COHIN_KV.put('item_index', JSON.stringify([])));
+      // Full-replace path (Restore, Import, Clear All).
+      statements.push(env.DB.prepare('DELETE FROM items'));
+      for (const item of inventoryData) {
+        statements.push(
+          env.DB.prepare('INSERT OR REPLACE INTO items (code, stocking_qty, remarks, locations) VALUES (?, ?, ?, ?)')
+            .bind(item.code, item.stockingQty ?? '', item.remarks ?? '[]', item.locations ?? '[]')
+        );
+      }
     } else if (changedItems !== undefined || deletedCodes !== undefined) {
-      // ---- Partial (per-item) update path ----
-      // Single edits, bulk delivery/withdraw, bulk clear of a subset.
-      // Only the touched items cost a write -- cheap for normal day-to-day
-      // volume (a handful to a few dozen writes per action).
-      const changed = changedItems || [];
-      const deleted = deletedCodes || [];
-
-      for (const item of changed) {
-        saves.push(env.COHIN_KV.put(`item:${item.code}`, JSON.stringify(item)));
+      // Partial path: single edit, bulk delivery/withdraw, bulk clear qty.
+      for (const item of (changedItems || [])) {
+        statements.push(
+          env.DB.prepare('INSERT OR REPLACE INTO items (code, stocking_qty, remarks, locations) VALUES (?, ?, ?, ?)')
+            .bind(item.code, item.stockingQty ?? '', item.remarks ?? '[]', item.locations ?? '[]')
+        );
       }
-      for (const code of deleted) {
-        // Tombstone instead of KV delete: a delete would make the item
-        // fall through to whatever the snapshot blob still has for that
-        // code, silently "undeleting" it on the next read. The tombstone
-        // makes the removal explicit and durable until the next full snapshot.
-        saves.push(env.COHIN_KV.put(`item:${code}`, JSON.stringify({ code, deleted: true })));
-      }
-
-      if (changed.length > 0 || deleted.length > 0) {
-        const indexStr = await env.COHIN_KV.get('item_index');
-        const codeSet = new Set(indexStr ? JSON.parse(indexStr) : []);
-        for (const item of changed) codeSet.add(item.code);
-        for (const code of deleted) codeSet.add(code);
-        saves.push(env.COHIN_KV.put('item_index', JSON.stringify(Array.from(codeSet))));
+      for (const code of (deletedCodes || [])) {
+        statements.push(env.DB.prepare('DELETE FROM items WHERE code = ?').bind(code));
       }
     }
 
-    if (transactionHistory !== undefined) {
-      saves.push(env.COHIN_KV.put('cohin_transactionHistory', JSON.stringify(transactionHistory)));
+    if (newHistoryEntries !== undefined) {
+      // Incremental path: just insert the new log entries (day-to-day).
+      for (const log of newHistoryEntries) {
+        statements.push(
+          env.DB.prepare('INSERT INTO transaction_history (timestamp, action, code, details, meta) VALUES (?, ?, ?, ?, ?)')
+            .bind(log.timestamp, log.action, log.code ?? '-', log.details ?? '', log.meta ? JSON.stringify(log.meta) : null)
+        );
+      }
+    } else if (transactionHistory !== undefined) {
+      // Full-replace path (Restore, Clear History).
+      statements.push(env.DB.prepare('DELETE FROM transaction_history'));
+      const chronological = transactionHistory.slice().reverse(); // newest-first -> oldest-first for correct id ordering
+      for (const log of chronological) {
+        statements.push(
+          env.DB.prepare('INSERT INTO transaction_history (timestamp, action, code, details, meta) VALUES (?, ?, ?, ?, ?)')
+            .bind(log.timestamp, log.action, log.code ?? '-', log.details ?? '', log.meta ? JSON.stringify(log.meta) : null)
+        );
+      }
     }
+
     if (palletCapacities !== undefined) {
-      saves.push(env.COHIN_KV.put('cohin_palletCapacities', JSON.stringify(palletCapacities)));
+      statements.push(env.DB.prepare('DELETE FROM pallet_capacities'));
+      for (const code of Object.keys(palletCapacities)) {
+        statements.push(
+          env.DB.prepare('INSERT OR REPLACE INTO pallet_capacities (code, capacity) VALUES (?, ?)')
+            .bind(code, palletCapacities[code])
+        );
+      }
     }
 
-    await Promise.all(saves);
+    if (statements.length > 0) {
+      await env.DB.batch(statements);
+    }
 
-    return Response.json(
-      { success: true, message: 'Data saved successfully' },
-      { headers: corsHeaders }
-    );
+    return Response.json({ success: true, message: 'Data saved successfully' }, { headers: corsHeaders });
   } catch (error) {
-    console.error('Error saving data to KV:', error);
+    console.error('Error saving data to D1:', error);
     return Response.json(
       { error: 'Failed to save data', details: error.message },
       { status: 500, headers: corsHeaders }
