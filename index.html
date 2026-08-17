@@ -768,7 +768,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
             el.classList.toggle('is-visible', activeSaveCount > 0);
         }
 
-        async function saveDataToAPI(dataToSave, invOptions = {}) {
+        async function saveDataToAPI(dataToSave, invOptions = {}, newHistoryEntries = null) {
             showSaveIndicator(true);
             try {
                 const payload = {};
@@ -802,7 +802,11 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                     }
                 }
                 if (dataToSave.includes('transactionHistory')) {
-                    payload.transactionHistory = transactionHistory;
+                    if (newHistoryEntries) {
+                        payload.newHistoryEntries = newHistoryEntries;
+                    } else {
+                        payload.transactionHistory = transactionHistory;
+                    }
                 }
                 if (dataToSave.includes('palletCapacities')) {
                     payload.palletCapacities = palletCapacities;
@@ -887,8 +891,8 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
         function saveInventoryToLocalStorage(changedCodes = null, deletedCodes = null) { saveDataToAPI(['inventoryData'], { changedCodes, deletedCodes }); }
         function loadInventoryFromLocalStorage() {}
-        function saveHistoryToLocalStorage() { saveDataToAPI(['transactionHistory']); }
-        function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); if (skipSync) return; renderHistoryLog(searchBar.value.toLowerCase()); saveHistoryToLocalStorage(); }
+        function saveHistoryToLocalStorage(newEntries = null) { saveDataToAPI(['transactionHistory'], {}, newEntries); }
+        function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); if (skipSync) return newLog; renderHistoryLog(searchBar.value.toLowerCase()); saveHistoryToLocalStorage([newLog]); return newLog; }
         function getHistoryRowBadgeClass(action) {
             const a = (action || '').toUpperCase();
             if (a.includes('DELETE') || a.includes('CLEAR')) return 'history-badge-red';
@@ -2486,6 +2490,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
 
             let successCount = 0;
             const changedCodes = [];
+            const newLogs = [];
             pendingBulkDeliveries.forEach(d => {
                 let row = originalRowsOrder.find(r => r.dataset.code === d.code);
 
@@ -2513,14 +2518,15 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
                 row.cells[3].textContent = finalRemarks.filter(r => r).join(' | ');
 
                 const added = calculateSingleStockingQtyTotal(formattedNew);
-                logTransaction('DELIVERY (BULK)', d.code, `+${added.toLocaleString()} pcs`, { oldQty, oldRemarks, newQty: combined, newRemarks: finalRemarks, addedQty: formattedNew, addedRemarks: specificRemarks }, true);
+                const newLog = logTransaction('DELIVERY (BULK)', d.code, `+${added.toLocaleString()} pcs`, { oldQty, oldRemarks, newQty: combined, newRemarks: finalRemarks, addedQty: formattedNew, addedRemarks: specificRemarks }, true);
+                newLogs.push(newLog);
                 changedCodes.push(d.code);
                 successCount++;
             });
 
             // One render + one save for the whole batch, instead of one per item.
             renderHistoryLog(searchBar.value.toLowerCase());
-            saveHistoryToLocalStorage();
+            saveHistoryToLocalStorage(newLogs);
             saveInventoryToLocalStorage(changedCodes);
             applyFiltersAndSort();
             bulkDeliveriesModal.style.display = 'none';
@@ -2602,7 +2608,7 @@ let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], curr
         clearHistoryButton.addEventListener('click', () => { checkAccess(async () => {
             setButtonLoading(clearHistoryButton, true);
             try {
-                if (await customConfirm('Are you sure?')) { transactionHistory = []; historyTableBody.innerHTML = ''; logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); }
+                if (await customConfirm('Are you sure?')) { transactionHistory = []; historyTableBody.innerHTML = ''; saveHistoryToLocalStorage(); logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); }
             } finally {
                 setButtonLoading(clearHistoryButton, false);
             }
