@@ -1284,7 +1284,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             res = res.concat(loose);
             return res.join('+');
         }
-        function calculateSingleStockingQtyTotal(breakdownString) { return getBreakdownParts(breakdownString).reduce((total, part) => { let value = 0; part = part.trim().replace(/,/g, ''); if (part.includes('×')) { value = part.split('×').reduce((prod, num) => prod * parseFloat(num.trim()), 1); } else { value = parseFloat(part); } return total + (isNaN(value) ? 0 : value); }, 0); }
+        function calculateSingleStockingQtyTotal(breakdownString) { return getBreakdownParts(formatStockingQty(breakdownString)).reduce((total, part) => { let value = 0; part = part.trim().replace(/,/g, ''); if (part.includes('×')) { value = part.split('×').reduce((prod, num) => prod * parseFloat(num.trim()), 1); } else { value = parseFloat(part); } return total + (isNaN(value) ? 0 : value); }, 0); }
         const REMARK_COLOR_MAP = [ { keywords: ['hold'], colorClass: 'color-orange' }, { keywords: ['approve', 'approved'], colorClass: 'color-pink' }, { keywords: ['first out', 'old'], colorClass: 'color-green' }, { keywords: [], colorClass: 'color-grey', isDefault: true }];
         function getColorClassForRemark(remark) { const lowerRemark = remark.toLowerCase().trim(); if (!lowerRemark) return REMARK_COLOR_MAP.find(m => m.isDefault)?.colorClass || 'color-default'; for (const mapping of REMARK_COLOR_MAP) { if (!mapping.isDefault && mapping.keywords.some(kw => lowerRemark.startsWith(kw))) return mapping.colorClass; } return REMARK_COLOR_MAP.find(m => m.isDefault)?.colorClass || 'color-default'; }
         function formatStockingQtyAndRemarksForDisplay(breakdownString, remarksArray, locationsArray, shorten) { const parts = getBreakdownParts(breakdownString); if (!parts.length || (parts.length === 1 && !parts[0])) return ''; locationsArray = locationsArray || []; return parts.map((part, index) => { const remark = remarksArray[index] || ''; const colorClass = getColorClassForRemark(remark); const loc = (locationsArray[index] || '').trim(); const locTag = loc ? `<span class="location-tag" title="Building/Rack">${loc}</span>` : ''; const trimmedPart = part.trim(); let displayText = trimmedPart; let titleAttr = ''; if (shorten) { const multMatch = trimmedPart.match(/^([\d.,]+)\s*×/); if (multMatch) { displayText = `(${multMatch[1]})`; titleAttr = ` title="${trimmedPart.replace(/"/g, '&quot;')}"`; } } return `<span class="${colorClass}"${titleAttr}>${displayText}</span>${locTag}`; }).join(' | '); }
@@ -2283,8 +2283,8 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             checkAccess(() => {
                 itemListBulkDatalist.innerHTML = '';
                 const sortedRows = [...originalRowsOrder].sort((a, b) => {
-                    const stockA = calculateSingleStockingQtyTotal(a.dataset.stockingQty);
-                    const stockB = calculateSingleStockingQtyTotal(b.dataset.stockingQty);
+                    const stockA = calculateSingleStockingQtyTotal(formatStockingQty(a.dataset.stockingQty));
+                    const stockB = calculateSingleStockingQtyTotal(formatStockingQty(b.dataset.stockingQty));
 
                     if (stockA > 0 && stockB <= 0) return -1;
                     if (stockA <= 0 && stockB > 0) return 1;
@@ -2293,7 +2293,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 });
                 sortedRows.forEach(row => {
                     const code = row.dataset.code;
-                    const totalStock = calculateSingleStockingQtyTotal(row.dataset.stockingQty);
+                    const totalStock = calculateSingleStockingQtyTotal(formatStockingQty(row.dataset.stockingQty));
                     const hasStock = totalStock > 0;
                     const option = document.createElement('option');
                     option.value = code;
