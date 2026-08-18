@@ -36,20 +36,37 @@ export async function onRequestPost(context) {
 
     if (inventoryData !== undefined) {
       // Full-replace path (Restore, Import, Clear All).
+      // sort_order = position in the incoming array, so export order matches
+      // exactly what was loaded/imported.
       statements.push(env.DB.prepare('DELETE FROM items'));
-      for (const item of inventoryData) {
+      inventoryData.forEach((item, index) => {
         statements.push(
-          env.DB.prepare('INSERT OR REPLACE INTO items (code, stocking_qty, remarks, locations) VALUES (?, ?, ?, ?)')
-            .bind(item.code, item.stockingQty ?? '', item.remarks ?? '[]', item.locations ?? '[]')
+          env.DB.prepare('INSERT OR REPLACE INTO items (code, stocking_qty, remarks, locations, sort_order) VALUES (?, ?, ?, ?, ?)')
+            .bind(item.code, item.stockingQty ?? '', item.remarks ?? '[]', item.locations ?? '[]', index)
         );
-      }
+      });
     } else if (changedItems !== undefined || deletedCodes !== undefined) {
       // Partial path: single edit, bulk delivery/withdraw, bulk clear qty.
-      for (const item of (changedItems || [])) {
-        statements.push(
-          env.DB.prepare('INSERT OR REPLACE INTO items (code, stocking_qty, remarks, locations) VALUES (?, ?, ?, ?)')
-            .bind(item.code, item.stockingQty ?? '', item.remarks ?? '[]', item.locations ?? '[]')
-        );
+      // Uses an UPSERT that preserves the existing sort_order on updates
+      // (so editing an item no longer moves it to the end of the export).
+      // New items get the next available sort_order, appended at the end.
+      if (changedItems && changedItems.length > 0) {
+        const maxRow = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), -1) AS maxOrder FROM items').first();
+        let nextOrder = (maxRow?.maxOrder ?? -1) + 1;
+
+        for (const item of changedItems) {
+          statements.push(
+            env.DB.prepare(`
+              INSERT INTO items (code, stocking_qty, remarks, locations, sort_order)
+              VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(code) DO UPDATE SET
+                stocking_qty = excluded.stocking_qty,
+                remarks = excluded.remarks,
+                locations = excluded.locations
+            `).bind(item.code, item.stockingQty ?? '', item.remarks ?? '[]', item.locations ?? '[]', nextOrder)
+          );
+          nextOrder++;
+        }
       }
       for (const code of (deletedCodes || [])) {
         statements.push(env.DB.prepare('DELETE FROM items WHERE code = ?').bind(code));

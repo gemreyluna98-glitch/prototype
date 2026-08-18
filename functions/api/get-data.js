@@ -17,7 +17,7 @@ export async function onRequestGet(context) {
 
   try {
     const [itemsResult, historyResult, palletResult] = await Promise.all([
-      env.DB.prepare('SELECT code, stocking_qty, remarks, locations FROM items').all(),
+      env.DB.prepare('SELECT code, stocking_qty, remarks, locations FROM items ORDER BY sort_order').all(),
       env.DB.prepare('SELECT timestamp, action, code, details, meta FROM transaction_history ORDER BY id DESC').all(),
       env.DB.prepare('SELECT code, capacity FROM pallet_capacities').all(),
     ]);
