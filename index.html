@@ -1572,7 +1572,8 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                             if (multMatch) displayText = `(${multMatch[1]})`;
                         }
                         const loc = (printLocations[index] || '').trim();
-                        return loc ? `${displayText}${loc}` : displayText;
+                        const locTag = loc ? `<span class="location-tag" title="Building/Rack">${loc}</span>` : '';
+                        return `${displayText}${locTag}`;
                     }).join(' | ');
                 }
 

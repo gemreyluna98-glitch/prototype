@@ -608,7 +608,7 @@ body.dark-mode tbody tr:hover { background-color: rgba(255, 255, 255, 0.03); }
 #triggerClearAllButton { background-color: var(--red); }
 #openImportModalButton { background-color: var(--paper); color: var(--ink); border: 1px solid var(--border) !important; }
 #triggerBulkClearButton { background-color: var(--amber); color: #fff; }
-.editable-breakdown { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; color: var(--steel); font-weight: 600; }
+.editable-breakdown { cursor: pointer; color: var(--steel); font-weight: 600; }
 .location-tag {
   color: var(--ink-soft);
   font-family: var(--font-mono);
