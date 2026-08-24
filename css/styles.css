@@ -817,46 +817,66 @@ body.dark-mode .bulk-del-item input::placeholder { color: var(--ink-soft); }
    Responsive & Fallbacks
    ========================================================================== */
 @media (max-width: 768px) {
-  body { padding: 12px 8px 40px; }
-  .container { padding: 16px; }
-  
-  /* Hide Symmetrical Floating docks on small screens to save valuable viewport space */
+  /* Docks rely on :hover to expand, which doesn't exist on touch — so on mobile,
+     turn them into a normal wrapping toolbar instead of a fixed side rail, with
+     every item shown in its "expanded" (icon + label) state permanently. This
+     reuses the same buttons/toggles as desktop, so no separate mobile markup or
+     JS is needed and toggle state (Bldg/Rack, Short Qty, etc.) stays in sync. */
   .left-floating-dock, .right-floating-dock {
+    position: static;
+    top: auto;
+    left: auto;
+    right: auto;
+    transform: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: auto;
+    margin: 0 0 12px;
+  }
+
+  .left-floating-dock:hover, .right-floating-dock:hover {
+    width: auto;
+  }
+
+  .left-floating-dock .floating-action-item,
+  .right-floating-dock .floating-action-item,
+  .left-floating-dock .floating-action-item:hover,
+  .right-floating-dock .floating-action-item:hover,
+  .left-floating-dock:hover .floating-action-item,
+  .right-floating-dock:hover .floating-action-item {
+    width: auto;
+    border-radius: var(--radius);
+    padding-right: 12px;
+  }
+
+  .right-floating-dock .floating-action-item {
+    padding-right: 0;
+    padding-left: 12px;
+  }
+
+  .left-floating-dock .floating-action-item .action-text,
+  .right-floating-dock .floating-action-item .action-text,
+  .left-floating-dock .floating-action-item:hover .action-text,
+  .right-floating-dock .floating-action-item:hover .action-text,
+  .left-floating-dock:hover .floating-action-item .action-text,
+  .right-floating-dock:hover .floating-action-item .action-text {
+    opacity: 1;
+    max-width: 120px;
+    transform: none;
+  }
+
+  /* The old partial mobile-only button row is now redundant since the full
+     dock above covers every action on mobile too. */
+  .mobile-action-buttons {
     display: none !important;
   }
 
-  /* Display natural mobile-only grid layout inside container */
-  .mobile-action-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    justify-content: center;
-    margin-bottom: 15px;
-    width: 100%;
+  #statSummaryGrid, .info-bar {
+    display: none !important;
   }
-
-  .mobile-action-buttons button {
-    flex: 1;
-    min-width: 130px;
-    color: white;
-    padding: 11px 16px;
-    border: none;
-    border-radius: var(--radius);
-    cursor: pointer;
-    font-size: 0.88em;
-    font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-    box-shadow: var(--shadow-1);
-    box-sizing: border-box;
-  }
-
-  .mobile-action-buttons button:active {
-    transform: translateY(1px);
-  }
+  body { padding: 12px 8px 40px; }
+  .container { padding: 16px; }
 
   /* Legacy movement filter wrapper displayed nicely on mobile inside filters */
   #legacyMovementFilterWrapper {

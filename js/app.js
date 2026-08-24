@@ -1226,9 +1226,10 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                             ${tableRowsHtml}
                         </tbody>
                     </table>
+                    ${document.getElementById('userName').value.trim() ? `
                     <div class="footer">
-                        COUNTED BY: ${document.getElementById('userName').value || '___________________'}
-                    </div>
+                        COUNTED BY: ${document.getElementById('userName').value}
+                    </div>` : ''}
                     <script>
                         window.onload = function() {
                             window.print();
