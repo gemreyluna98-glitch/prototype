@@ -6,13 +6,19 @@ const corsHeaders = {
 };
 
 export async function onRequestGet(context) {
-  const { env } = context;
+  const { request, env } = context;
 
   if (!env.DB) {
     return Response.json(
       { error: 'D1 database DB is not bound. Add the binding in Pages > Settings > Bindings.' },
       { status: 500, headers: corsHeaders }
     );
+  }
+
+  const authHeader = request.headers.get('Authorization');
+  const expectedPassword = env.SYSTEM_PASSWORD || '101010';
+  if (!authHeader || authHeader !== `Bearer ${expectedPassword}`) {
+    return Response.json({ error: 'Unauthorized. Incorrect password.' }, { status: 401, headers: corsHeaders });
   }
 
   try {

@@ -112,7 +112,13 @@ export async function onRequestPost(context) {
     }
 
     if (statements.length > 0) {
-      await env.DB.batch(statements);
+      // D1 caps batch() at 10,000 statements per request — chunk defensively
+      // so a large Import/Restore (which can be 1 DELETE + N INSERTs) never
+      // hits that ceiling, even well before N gets anywhere close to it.
+      const BATCH_CHUNK_SIZE = 5000;
+      for (let i = 0; i < statements.length; i += BATCH_CHUNK_SIZE) {
+        await env.DB.batch(statements.slice(i, i + BATCH_CHUNK_SIZE));
+      }
     }
 
     return Response.json({ success: true, message: 'Data saved successfully' }, { headers: corsHeaders });
