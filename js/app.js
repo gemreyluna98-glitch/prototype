@@ -930,12 +930,21 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         }
         function renderRow(item, shouldSave = true) { const row = inventoryTableBody.insertRow(); originalRowsOrder.push(row); rowsByCode.set(item.code, row); row.dataset.code = item.code; row.dataset.stockingQty = item.stockingQty; row.dataset.remarks = JSON.stringify(item.remarks); row.dataset.locations = JSON.stringify(item.locations || []); const formattedBreakdown = formatStockingQty(item.stockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); const codeCell = row.insertCell(0); codeCell.textContent = item.code; codeCell.dataset.label = "MATERIAL CODE:"; const breakdownCell = row.insertCell(1); breakdownCell.innerHTML = renderBreakdownCellHtml(item.stockingQty, item.remarks, item.locations || []); breakdownCell.classList.add('editable-breakdown'); breakdownCell.dataset.label = "Stocking Qty:"; const totalCell = row.insertCell(2); totalCell.textContent = total.toLocaleString(); totalCell.classList.add('total-per-row', 'column-hidden'); totalCell.dataset.label = "Total per Row:"; const remarksCell = row.insertCell(3); remarksCell.textContent = item.remarks.filter(r => r).join(' | '); remarksCell.classList.add('column-hidden'); remarksCell.dataset.label = "Remarks:"; if (shouldSave) { saveInventoryToLocalStorage(); } }
 
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
         function highlightMatch(text, term) {
-            if (!term) return text;
+            const safeText = escapeHtml(text);
+            if (!term) return safeText;
             try {
                 const regex = new RegExp(`(${term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi');
-                return text.replace(regex, '<span class="highlight">$1</span>');
-            } catch (e) { return text; }
+                return safeText.replace(regex, '<span class="highlight">$1</span>');
+            } catch (e) { return safeText; }
         }
 
         function getMovedItems(dateFrom, timeFrom, dateTo, timeTo) {

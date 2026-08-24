@@ -37,7 +37,9 @@ export async function onRequestGet(context) {
 
     const transactionHistory = historyResult.results.map(r => {
       const log = { timestamp: r.timestamp, action: r.action, code: r.code, details: r.details };
-      if (r.meta) log.meta = JSON.parse(r.meta);
+      if (r.meta) {
+        try { log.meta = JSON.parse(r.meta); } catch (e) { log.meta = null; }
+      }
       return log;
     });
 
