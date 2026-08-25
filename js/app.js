@@ -271,6 +271,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     updateLockUI();
                     resetInactivityTimer();
                     passwordModal.style.display = 'none';
+                    await loadDataFromAPI(); // the initial page-load fetch may have failed (401) if this password wasn't known yet — refresh now that it's verified
                     if (pendingAction) {
                         const action = pendingAction;
                         pendingAction = null;
@@ -297,12 +298,13 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         });
 
         function updateLockUI() {
+            const icon = lockSystemButton.querySelector('i');
             if (isLocked) {
-                lockSystemButton.innerHTML = '<i class="fas fa-lock"></i>';
+                if (icon) icon.className = 'fas fa-lock';
                 lockSystemButton.style.backgroundColor = '#dc3545';
                 lockSystemButton.title = 'System Locked (Click to Unlock)';
             } else {
-                lockSystemButton.innerHTML = '<i class="fas fa-lock-open"></i>';
+                if (icon) icon.className = 'fas fa-lock-open';
                 lockSystemButton.style.backgroundColor = '#28a745';
                 lockSystemButton.title = 'System Unlocked (Click to Lock)';
             }
@@ -780,7 +782,8 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             itemDetailedReportModal.style.display = 'block';
         });
         closeItemReportButton.addEventListener('click', () => { itemDetailedReportModal.style.display = 'none'; });
-        exportItemReportButton.addEventListener('click', () => {
+        exportItemReportButton.addEventListener('click', async () => {
+            await loadXLSX();
             const code = itemReportCode.textContent;
             const logs = getItemLogsForCode(code);
             const dataForExport = [['DATE & TIME', 'TRANSACTION', 'QTY CHANGE', 'BEFORE', 'AFTER', 'DETAILS']];
@@ -2085,15 +2088,23 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
 
         // If the user selects an item from the datalist dropdown (e.g. via Click or Enter),
         // we capture the 'input' event with 'insertReplacementText' and immediately shift focus.
+        // Also auto-fills the pallet capacity field, in priority order: an already-known
+        // capacity for this code, then whatever the item's own stocking breakdown implies
+        // (most reliable — no guessing), then a "N PCS/PLT" hint in its remarks as a last resort.
         bulkDelItemSearch.addEventListener('input', (e) => {
             const code = bulkDelItemSearch.value.trim();
             if (!code) return;
 
+            const row = rowsByCode.get(code);
+
             if (palletCapacities[code]) {
                 bulkDelPalletCapacity.value = palletCapacities[code];
             } else {
-                const row = rowsByCode.get(code);
-                if (row && row.dataset.remarks) {
+                const inferred = row ? inferCapacity(row.dataset.stockingQty) : null;
+                if (inferred) {
+                    bulkDelPalletCapacity.value = inferred;
+                } else if (row && row.dataset.remarks) {
+                    bulkDelPalletCapacity.value = '';
                     try {
                         const remarksArr = JSON.parse(row.dataset.remarks);
                         if (remarksArr.length > 0) {
@@ -2108,6 +2119,8 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     } catch (err) {
                         console.error("Error parsing remarks for pallet capacity auto-fill", err);
                     }
+                } else {
+                    bulkDelPalletCapacity.value = '';
                 }
             }
 
@@ -2167,27 +2180,6 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                         bulkDelPalletCapacity.focus();
                     }
                 }, 10);
-            }
-        });
-
-        bulkDelItemSearch.addEventListener('input', () => {
-            const code = bulkDelItemSearch.value.trim();
-            if (!code) return;
-
-            if (palletCapacities[code]) {
-                bulkDelPalletCapacity.value = palletCapacities[code];
-            } else {
-                const row = rowsByCode.get(code);
-                if (row) {
-                    const inferred = inferCapacity(row.dataset.stockingQty);
-                    if (inferred) {
-                        bulkDelPalletCapacity.value = inferred;
-                    } else {
-                        bulkDelPalletCapacity.value = '';
-                    }
-                } else {
-                    bulkDelPalletCapacity.value = '';
-                }
             }
         });
 
@@ -2389,8 +2381,11 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             }
         }); });
         inventoryTableBody.addEventListener('click', (event) => { const targetCell = event.target.closest('.editable-breakdown'); if (targetCell) {
+            const code = targetCell.closest('tr')?.dataset.code;
             checkAccess(() => {
-                currentEditingRow = targetCell.closest('tr'); editBreakdownInput.value = formatStockingQty(currentEditingRow.dataset.stockingQty); const remarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const locations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const parts = getBreakdownParts(formatStockingQty(currentEditingRow.dataset.stockingQty)); lastEditBreakdownParts = parts; markedForDeletionIndices = new Set(); generateRemarksInputs(parts.length, remarks, locations); if (editBreakdownItemCode) editBreakdownItemCode.textContent = currentEditingRow.dataset.code; if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.remove('stocking-qty-floating'); document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight')); updateEditBreakdownPreview(); editBreakdownModal.style.display = 'block';
+                const row = rowsByCode.get(code);
+                if (!row) return; // item no longer present (e.g. removed by a reload triggered while the unlock modal was up)
+                currentEditingRow = row; editBreakdownInput.value = formatStockingQty(currentEditingRow.dataset.stockingQty); const remarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const locations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const parts = getBreakdownParts(formatStockingQty(currentEditingRow.dataset.stockingQty)); lastEditBreakdownParts = parts; markedForDeletionIndices = new Set(); generateRemarksInputs(parts.length, remarks, locations); if (editBreakdownItemCode) editBreakdownItemCode.textContent = currentEditingRow.dataset.code; if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.remove('stocking-qty-floating'); document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight')); updateEditBreakdownPreview(); editBreakdownModal.style.display = 'block';
             });
         }
         });
@@ -2762,7 +2757,6 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
 
         cancelImportButton.addEventListener('click', () => { importDataModal.style.display = 'none' });
         cancelBreakdownButton.addEventListener('click', () => { editBreakdownModal.style.display = 'none' });
-        cancelBulkDelivery.addEventListener('click', () => { bulkDeliveriesModal.style.display = 'none' });
 
 
         // Variance Tracker Logic
