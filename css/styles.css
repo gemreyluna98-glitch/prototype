@@ -207,16 +207,6 @@ h2 {
   }
   body.dark-mode .stat-summary-card { background-color: #10131a; }
 }
-.container > h1::before {
-  content: '';
-  display: block;
-  width: 34px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--amber);
-  box-shadow: 0 0 12px var(--amber-glow);
-  margin: 0 auto 10px;
-}
 
 /* ==========================================================================
    Info bar — "manifest ticket stub" signature element

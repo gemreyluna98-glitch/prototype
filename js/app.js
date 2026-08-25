@@ -226,7 +226,11 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
 
         let isLocked = true;
         let inactivityTimer;
-        const DEFAULT_PASSWORD = '101010';
+
+        function getStoredPassword() {
+            const pass = localStorage.getItem('systemPassword');
+            return pass && pass.trim() ? pass : null;
+        }
 
         function resetInactivityTimer() {
             clearTimeout(inactivityTimer);
@@ -265,7 +269,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 });
 
                 if (response.ok) {
-                    // Password is correct on Vercel
+                    // Password verified against Cloudflare Pages SYSTEM_PASSWORD
                     localStorage.setItem('systemPassword', pass); // Store for API calls
                     isLocked = false;
                     updateLockUI();
@@ -378,7 +382,11 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             showSaveIndicator(true);
             try {
                 const payload = {};
-                const currentPassword = localStorage.getItem('systemPassword') || DEFAULT_PASSWORD;
+                const currentPassword = getStoredPassword();
+                if (!currentPassword) {
+                    document.getElementById('errorMessage').textContent = 'Save Error: Unlock the system before saving.';
+                    return;
+                }
 
                 if (dataToSave.includes('inventoryData')) {
                     const { changedCodes, deletedCodes } = invOptions;
@@ -435,26 +443,31 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
                     if (response.status === 401) {
-                         document.getElementById('errorMessage').innerHTML = "Save Error: Unauthorized database access. Please check your password.";
+                         document.getElementById('errorMessage').textContent = "Save Error: Unauthorized database access. Please check your password.";
                     } else {
                          const details = errorData.error || errorData.details || response.statusText;
                          throw new Error(`Failed to save to database. Details: ${details}`);
                     }
                     return;
                 }
-                document.getElementById('errorMessage').innerHTML = '';
+                document.getElementById('errorMessage').textContent = '';
             } catch (error) {
                 console.error("Database save error:", error);
-                document.getElementById('errorMessage').innerHTML = `Save Error: ${error.message}`;
+                document.getElementById('errorMessage').textContent = `Save Error: ${error.message}`;
             } finally {
                 showSaveIndicator(false);
             }
         }
 
         async function loadDataFromAPI() {
-            try {
-                const currentPassword = localStorage.getItem('systemPassword') || DEFAULT_PASSWORD;
+            const currentPassword = getStoredPassword();
+            if (!currentPassword) {
+                const overlay = document.getElementById('pageLoadOverlay');
+                if (overlay) overlay.classList.add('is-hidden');
+                return;
+            }
 
+            try {
                 const response = await fetch('/api/get-data', {
                     headers: {
                         'Authorization': `Bearer ${currentPassword}`
@@ -464,7 +477,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
                     if (response.status === 401) {
-                         document.getElementById('errorMessage').innerHTML = "Load Error: Unauthorized access. The system password does not match the cloud database password.";
+                         document.getElementById('errorMessage').textContent = "Load Error: Unauthorized access. The system password does not match the cloud database password.";
                     } else {
                          const details = errorData.error || errorData.details || response.statusText;
                          throw new Error(`Failed to fetch from database. Details: ${details}`);
@@ -492,10 +505,10 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     palletCapacities = dbData.palletCapacities;
                 }
                 applyFiltersAndSort(); // already calls renderHistoryLog internally — no need to call it twice
-                document.getElementById('errorMessage').innerHTML = '';
+                document.getElementById('errorMessage').textContent = '';
             } catch (error) {
                 console.error("Database load error:", error);
-                document.getElementById('errorMessage').innerHTML = `Load Error: ${error.message}`;
+                document.getElementById('errorMessage').textContent = `Load Error: ${error.message}`;
             } finally {
                 const overlay = document.getElementById('pageLoadOverlay');
                 if (overlay) overlay.classList.add('is-hidden');
@@ -754,7 +767,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     const tr = itemReportTableBody.insertRow();
                     const formattedDate = new Date(l.timestamp).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
                     tr.insertCell(0).textContent = formattedDate;
-                    tr.insertCell(1).innerHTML = `<span class="action-badge ${getActionBadgeClass(l.action)}">${l.action}</span>`;
+                    tr.insertCell(1).innerHTML = `<span class="action-badge ${getActionBadgeClass(l.action)}">${escapeHtml(l.action)}</span>`;
                     const deltaCell = tr.insertCell(2);
                     if (typeof l.delta === 'number') {
                         const cls = l.delta > 0 ? 'qty-delta-positive' : (l.delta < 0 ? 'qty-delta-negative' : 'qty-delta-neutral');
@@ -771,7 +784,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     } else {
                         // Fallback for actions without structured breakdown meta (older logs, withdrawals, clears, etc.)
                         const fallbackText = l.deltaLabel && l.deltaLabel !== l.details ? `${l.deltaLabel}  (${l.details})` : l.details;
-                        detailsCell.innerHTML = `<span class="breakdown-row-value">${fallbackText.replace(/ \| /g, '<br>')}</span>`;
+                        detailsCell.innerHTML = `<span class="breakdown-row-value">${escapeHtml(fallbackText).replace(/ \| /g, '<br>')}</span>`;
                     }
                 });
             }
@@ -867,7 +880,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         function calculateSingleStockingQtyTotal(breakdownString) { return getBreakdownParts(formatStockingQty(breakdownString)).reduce((total, part) => { let value = 0; part = part.trim().replace(/,/g, ''); if (part.includes('×')) { value = part.split('×').reduce((prod, num) => prod * parseFloat(num.trim()), 1); } else { value = parseFloat(part); } return total + (isNaN(value) ? 0 : value); }, 0); }
         const REMARK_COLOR_MAP = [ { keywords: ['hold'], colorClass: 'color-orange' }, { keywords: ['approve', 'approved'], colorClass: 'color-pink' }, { keywords: ['first out', 'old'], colorClass: 'color-green' }, { keywords: [], colorClass: 'color-grey', isDefault: true }];
         function getColorClassForRemark(remark) { const lowerRemark = remark.toLowerCase().trim(); if (!lowerRemark) return REMARK_COLOR_MAP.find(m => m.isDefault)?.colorClass || 'color-default'; for (const mapping of REMARK_COLOR_MAP) { if (!mapping.isDefault && mapping.keywords.some(kw => lowerRemark.startsWith(kw))) return mapping.colorClass; } return REMARK_COLOR_MAP.find(m => m.isDefault)?.colorClass || 'color-default'; }
-        function formatStockingQtyAndRemarksForDisplay(breakdownString, remarksArray, locationsArray, shorten) { const parts = getBreakdownParts(breakdownString); if (!parts.length || (parts.length === 1 && !parts[0])) return ''; locationsArray = locationsArray || []; return parts.map((part, index) => { const remark = remarksArray[index] || ''; const colorClass = getColorClassForRemark(remark); const loc = (locationsArray[index] || '').trim(); const locTag = loc ? `<span class="location-tag" title="Building/Rack">${loc}</span>` : ''; const trimmedPart = part.trim(); let displayText = trimmedPart; let titleAttr = ''; if (shorten) { const multMatch = trimmedPart.match(/^([\d.,]+)\s*×/); if (multMatch) { displayText = `(${multMatch[1]})`; titleAttr = ` title="${trimmedPart.replace(/"/g, '&quot;')}"`; } } return `<span class="${colorClass}"${titleAttr}>${displayText}</span>${locTag}`; }).join(' | '); }
+        function formatStockingQtyAndRemarksForDisplay(breakdownString, remarksArray, locationsArray, shorten) { const parts = getBreakdownParts(breakdownString); if (!parts.length || (parts.length === 1 && !parts[0])) return ''; locationsArray = locationsArray || []; return parts.map((part, index) => { const remark = remarksArray[index] || ''; const colorClass = getColorClassForRemark(remark); const loc = (locationsArray[index] || '').trim(); const locTag = loc ? `<span class="location-tag" title="Building/Rack">${escapeHtml(loc)}</span>` : ''; const trimmedPart = part.trim(); let displayText = trimmedPart; let titleAttr = ''; if (shorten) { const multMatch = trimmedPart.match(/^([\d.,]+)\s*×/); if (multMatch) { displayText = `(${multMatch[1]})`; titleAttr = ` title="${escapeHtml(trimmedPart)}"`; } } return `<span class="${colorClass}"${titleAttr}>${escapeHtml(displayText)}</span>${locTag}`; }).join(' | '); }
         function convertToExcelFormula(stockingQty) { if (!stockingQty || !stockingQty.trim()) return 0; let formula = String(stockingQty).trim(); formula = formula.replace(/×|x|\*/gi, '*'); formula = formula.replace(/\|/g, '+'); formula = formula.replace(/\s*[lL]\s*/g, '+'); formula = formula.replace(/,/g, ''); formula = formula.replace(/\s+/g, ' '); if (!formula) return 0; return `=${formula}`; }
         function generateBackupFilename() { const dateValue = currentDateInput.value; const [year, month, day] = dateValue.split('-'); const shortYear = year.slice(-2); const formattedDate = `${month}-${day}-${shortYear}`; const timeValue = currentTimeInput.value; let [hours, minutes] = timeValue.split(':'); hours = parseInt(hours, 10); const ampm = hours >= 12 ? 'PM' : 'AM'; hours = hours % 12; hours = hours ? hours : 12; const formattedTime = `${hours}-${minutes}-${ampm}`; const shiftValue = currentShiftSelect.value; const shiftAbbreviation = shiftValue === 'Day Shift' ? 'DS' : 'NS'; return `backup_${formattedDate}_${formattedTime}_${shiftAbbreviation}.xlsx`; }
         function isShortenBreakdownOn() { return shortenBreakdownCheckbox ? shortenBreakdownCheckbox.checked : false; }
@@ -1161,8 +1174,8 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                             if (multMatch) displayText = `(${multMatch[1]})`;
                         }
                         const loc = (printLocations[index] || '').trim();
-                        const locTag = loc ? `<span class="location-tag" title="Building/Rack">${loc}</span>` : '';
-                        return `${displayText}${locTag}`;
+                        const locTag = loc ? `<span class="location-tag" title="Building/Rack">${escapeHtml(loc)}</span>` : '';
+                        return `${escapeHtml(displayText)}${locTag}`;
                     }).join(' | ');
                 }
 
@@ -1170,7 +1183,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     <tr>
                         <td style="text-align: center; width: 30px;">${printCount}</td>
                         ${showMarking ? `<td style="text-align: center; width: 30px; font-weight: bold; color: red;">${isMoved ? '★' : ''}</td>` : ''}
-                        <td>${code}</td>
+                        <td>${escapeHtml(code)}</td>
                         <td>${breakdownHtml}</td>
                     </tr>
                 `;
@@ -1242,7 +1255,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     </table>
                     ${document.getElementById('userName').value.trim() ? `
                     <div class="footer">
-                        COUNTED BY: ${document.getElementById('userName').value}
+                        COUNTED BY: ${escapeHtml(document.getElementById('userName').value)}
                     </div>` : ''}
                     <script>
                         window.onload = function() {
@@ -1366,7 +1379,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         }
         function populateBulkClearList(itemsToDisplay = originalRowsOrder) { bulkClearList.innerHTML = ''; if (itemsToDisplay.length === 0) { bulkClearList.innerHTML = '<p style="text-align:center; color:grey;">No items match the filter.</p>'; return; } itemsToDisplay.forEach((row, index) => { const itemCode = row.dataset.code; const totalQty = row.cells[2].textContent; const itemDiv = document.createElement('div'); itemDiv.className = 'bulk-clear-item'; const infoDiv = document.createElement('div'); infoDiv.className = 'item-info'; const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.id = `bulk-clear-check-${index}`; checkbox.value = itemCode; const label = document.createElement('label'); label.htmlFor = `bulk-clear-check-${index}`; label.textContent = itemCode; const qtySpan = document.createElement('span'); qtySpan.className = 'item-qty'; qtySpan.textContent = `Total: ${totalQty}`; infoDiv.append(checkbox, label); itemDiv.append(infoDiv, qtySpan); bulkClearList.appendChild(itemDiv); }); }
         function applyBulkClearFilters() { const itemType = document.getElementById('itemTypeFilter_bulk').value; const remarkType = document.getElementById('remarksFilter_bulk').value; const dataType = dataPresenceFilter_bulk.value; const filteredRows = originalRowsOrder.filter(row => { const code = row.dataset.code.toUpperCase(); const remarks = JSON.parse(row.dataset.remarks || '[]').map(r => r.toLowerCase().trim()); const qtyText = row.cells[1].textContent.trim(); const passesItem = itemType === 'ALL' || (itemType === 'LBL' && code.startsWith('LBL')) || (itemType === 'CTN' && code.startsWith('CTN')) || (itemType === 'PLASTIC' && (code.startsWith('BAG') || code.includes('BUNDLE'))) || (itemType === 'OTHERS' && !/^(LBL|CTN|BAG)|BUNDLE/.test(code)); const passesData = dataType === 'ALL' || (dataType === 'WITH_DATA' && qtyText) || (dataType === 'WITHOUT_DATA' && !qtyText); let passesRemark = false; const hasHold = remarks.some(r => r.startsWith('hold')); const hasApproved = remarks.some(r => r.startsWith('approve') || r.startsWith('approved')); const hasOld = remarks.some(r => r.startsWith('first out') || r.startsWith('old')); const hasAnyRemark = remarks.some(r => r !== ''); switch (remarkType) { case 'ALL': passesRemark = true; break; case 'HOLD': passesRemark = hasHold; break; case 'APPROVED': passesRemark = hasApproved; break; case 'FIRSTOUT_OLD': passesRemark = hasOld; break; case 'NO_REMARK': passesRemark = !hasAnyRemark; break; case 'OTHER_REMARKS': passesRemark = hasAnyRemark && !hasHold && !hasApproved && !hasOld; break; } return passesItem && passesRemark && passesData; }); populateBulkClearList(filteredRows); }
-        function handleFileSelect(file) { if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { loadedWorkbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' }); excelSheetSelect.innerHTML = ''; loadedWorkbook.SheetNames.forEach(name => { excelSheetSelect.innerHTML += `<option value="${name}">${name}</option>`; }); handleSheetChange(); importDataModal.style.display = 'block'; importErrorMessageDiv.textContent = ''; } catch (err) { importErrorMessageDiv.textContent = 'Error reading file.'; } }; reader.readAsArrayBuffer(file); }
+        function handleFileSelect(file) { if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { loadedWorkbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' }); excelSheetSelect.innerHTML = ''; loadedWorkbook.SheetNames.forEach(name => { const opt = document.createElement('option'); opt.value = name; opt.textContent = name; excelSheetSelect.appendChild(opt); }); handleSheetChange(); importDataModal.style.display = 'block'; importErrorMessageDiv.textContent = ''; } catch (err) { importErrorMessageDiv.textContent = 'Error reading file.'; } }; reader.readAsArrayBuffer(file); }
         function handleSheetChange() { const sheetName = excelSheetSelect.value; const worksheet = loadedWorkbook.Sheets[sheetName]; const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); stockingQtyDateSelectModal.innerHTML = '<option value="">Do not import</option>'; if (data.length >= STOCKING_QTY_ROW_EXCEL_INDEX) { const headerRow = data[5] || []; let counter = 1; headerRow.forEach((h, i) => { if (typeof h === 'string' && h.trim().toLowerCase().includes('stocking qty')) { stockingQtyDateSelectModal.innerHTML += `<option value="${i}">Stocking Qty ${counter++}</option>`; } }); } }
         const standardRemarksList = [
             'approved',
@@ -1444,8 +1457,8 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 return;
             }
             editBreakdownPreview.innerHTML = partsData.map(p => {
-                const locTag = p.loc ? `<span class="location-tag">${p.loc}</span>` : '';
-                return `<span class="${p.colorClass} preview-part" data-indices="${p.indices.join(',')}" title="I-click para tumuon sa Remarks/Bldg-Rack ng part na ito">${p.text}</span>${locTag}`;
+                const locTag = p.loc ? `<span class="location-tag">${escapeHtml(p.loc)}</span>` : '';
+                return `<span class="${p.colorClass} preview-part" data-indices="${p.indices.join(',')}" title="I-click para tumuon sa Remarks/Bldg-Rack ng part na ito">${escapeHtml(p.text)}</span>${locTag}`;
             }).join(' <span class="preview-sep">|</span> ');
         }
 
@@ -1916,17 +1929,17 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             bulkDeliveryList.innerHTML = pendingBulkDeliveries.map((i,idx)=>`
                 <div class="bulk-pending-card">
                     <div class="bulk-pending-card-header">
-                        <input type="text" value="${i.code}" oninput="updatePendingItem(${idx}, 'code', this.value)" placeholder="Material Code">
+                        <input type="text" value="${escapeHtml(i.code)}" oninput="updatePendingItem(${idx}, 'code', this.value)" placeholder="Material Code">
                         <button class="bulk-pending-card-remove" onclick="removeBulkDeliveryItem(${idx})"><i class="fas fa-times"></i></button>
                     </div>
                     <div class="bulk-pending-card-row">
                         <div class="bulk-pending-card-field">
                             <label>Qty:</label>
-                            <input type="text" value="${i.qty}" oninput="updatePendingItem(${idx}, 'qty', this.value)">
+                            <input type="text" value="${escapeHtml(i.qty)}" oninput="updatePendingItem(${idx}, 'qty', this.value)">
                         </div>
                         <div class="bulk-pending-card-field" style="flex: 2;">
                             <label>Remarks:</label>
-                            <input type="text" value="${i.remarks}" oninput="updatePendingItem(${idx}, 'remarks', this.value)">
+                            <input type="text" value="${escapeHtml(i.remarks)}" oninput="updatePendingItem(${idx}, 'remarks', this.value)">
                         </div>
                     </div>
                 </div>
@@ -2476,13 +2489,13 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 return `
                 <div class="bulk-pending-card">
                     <div class="bulk-pending-card-header">
-                        <span class="bulk-pending-card-code">${item.code}</span>
+                        <span class="bulk-pending-card-code">${escapeHtml(item.code)}</span>
                         <button class="bulk-pending-card-remove" onclick="removeWithdrawalItem(${idx})"><i class="fas fa-times"></i></button>
                     </div>
                     <div class="bulk-pending-card-row">
                         <div class="bulk-pending-card-field">
                             <label class="withdraw-qty-label">Qty Breakdown:</label>
-                            <input type="text" value="${item.qty}" onchange="updateWithdrawalItemQty(${idx}, this.value, '${item.code}')">
+                            <input type="text" value="${escapeHtml(item.qty)}" onchange="updateWithdrawalItemQty(${idx}, this.value)">
                         </div>
                         <div class="bulk-pending-card-total withdraw-total-label">
                             Total: ${totalWithdrawQty.toLocaleString()}
@@ -2498,7 +2511,10 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             renderWithdrawList();
         };
 
-        window.updateWithdrawalItemQty = function(idx, newQtyStr, code) {
+        window.updateWithdrawalItemQty = function(idx, newQtyStr) {
+            const item = pendingBulkWithdrawals[idx];
+            if (!item) return;
+            const code = item.code;
             const row = rowsByCode.get(code);
             if (!row) return;
 
@@ -2686,7 +2702,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             }
 
             if (combinedTotal > maxWithdrawable) {
-                bulkWithdrawErrorMessage.innerHTML = `Cannot withdraw <strong>${combinedTotal.toLocaleString()}</strong>.<br>Only <strong>${maxWithdrawable.toLocaleString()}</strong> is available for ${code}.`;
+                bulkWithdrawErrorMessage.innerHTML = `Cannot withdraw <strong>${combinedTotal.toLocaleString()}</strong>.<br>Only <strong>${maxWithdrawable.toLocaleString()}</strong> is available for ${escapeHtml(code)}.`;
                 return;
             }
 
@@ -2859,7 +2875,7 @@ compareVarianceButton.addEventListener('click', async () => {
                             }
 
                             tr.innerHTML = `
-                                <td>${res.code}</td>
+                                <td>${escapeHtml(res.code)}</td>
                                 <td>${res.sysQty.toLocaleString()}</td>
                                 <td>${res.excelQty.toLocaleString()}</td>
                                 <td style="color: ${varianceColor}; font-weight: bold;">${varianceText}</td>
