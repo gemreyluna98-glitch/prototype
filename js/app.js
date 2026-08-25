@@ -218,6 +218,8 @@
         transactionHistoryContent = document.getElementById('transactionHistoryContent'),
         transactionHistoryIcon = document.getElementById('transactionHistoryIcon');
 let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], currentEditingRow = null, pendingAction = null;
+let lastEditBreakdownParts = []; // snapshot of breakdown parts as currently shown in the edit modal, used to correctly re-align remarks/bldg-rack tags when a part is added/removed mid-list
+let markedForDeletionIndices = new Set(); // indices into lastEditBreakdownParts the user explicitly flagged as "this one is being removed" via the 🗑 button, so the fallback pairing below never mistakes it for a changed value
 let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder for O(1) code lookups
         let bulkWithdrawQuantities = {};
         let palletCapacities = {};
@@ -1474,6 +1476,59 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             }, 2200);
         });
 
+        // Aligns an old list of breakdown parts against a new one (after the user
+        // added/removed/reordered parts in the raw text) so remarks/bldg-rack tags
+        // stay attached to the correct quantity instead of just shifting by position.
+        // Returns an array the same length as newParts, where each entry is either
+        // the matching index into oldParts (tag carries over) or -1 (new/no match,
+        // blank tag).
+        function diffBreakdownParts(oldParts, newParts) {
+            const n = oldParts.length, m = newParts.length;
+            const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+            for (let i = 1; i <= n; i++) {
+                for (let j = 1; j <= m; j++) {
+                    dp[i][j] = oldParts[i - 1] === newParts[j - 1]
+                        ? dp[i - 1][j - 1] + 1
+                        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+                }
+            }
+            const mapping = new Array(m).fill(-1);
+            let i = n, j = m;
+            while (i > 0 && j > 0) {
+                if (oldParts[i - 1] === newParts[j - 1]) {
+                    mapping[j - 1] = i - 1;
+                    i--; j--;
+                } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+                    i--;
+                } else {
+                    j--;
+                }
+            }
+            return mapping;
+        }
+
+        // After exact-match pairing, pair any still-unmatched old/new parts by their
+        // leftover order (handles a value simply being edited, e.g. 12800 -> 10000).
+        // Any old index in excludedIndices (explicitly marked 🗑 by the user) is
+        // removed from the leftover pool first, so it's never mistaken for the
+        // source of an edited value elsewhere in the breakdown.
+        function diffBreakdownPartsWithFallback(oldParts, newParts, excludedIndices) {
+            const mapping = diffBreakdownParts(oldParts, newParts);
+            const usedOld = new Set(mapping.filter(x => x !== -1));
+            const leftoverOldIdx = [];
+            for (let i = 0; i < oldParts.length; i++) {
+                if (!usedOld.has(i) && !excludedIndices.has(i)) leftoverOldIdx.push(i);
+            }
+            let li = 0;
+            for (let j = 0; j < mapping.length; j++) {
+                if (mapping[j] === -1 && li < leftoverOldIdx.length) {
+                    mapping[j] = leftoverOldIdx[li];
+                    li++;
+                }
+            }
+            return mapping;
+        }
+
         function generateRemarksInputs(numParts, remarks, locations) {
             dynamicRemarksContainer.innerHTML = '';
             locations = locations || [];
@@ -1500,14 +1555,33 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
 
                 const locGroup = document.createElement('div');
                 locGroup.className = 'item-input building-rack-group';
+                const locLabelRow = document.createElement('div');
+                locLabelRow.className = 'location-label-row';
                 const locLabel = document.createElement('label');
                 locLabel.innerHTML = `<i class="fas fa-warehouse"></i> Building/Rack for Part ${i + 1}:`;
+                const markDeleteBtn = document.createElement('button');
+                markDeleteBtn.type = 'button';
+                markDeleteBtn.className = 'mark-delete-btn';
+                markDeleteBtn.title = 'Mark this part as being deleted — click BEFORE you remove its number from the Stocking Qty text above, so the app doesn\'t mistake it for an edited value elsewhere in the breakdown.';
+                markDeleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+                markDeleteBtn.dataset.partIndex = i;
+                if (markedForDeletionIndices.has(i)) markDeleteBtn.classList.add('active');
+                markDeleteBtn.addEventListener('click', () => {
+                    if (markedForDeletionIndices.has(i)) {
+                        markedForDeletionIndices.delete(i);
+                        markDeleteBtn.classList.remove('active');
+                    } else {
+                        markedForDeletionIndices.add(i);
+                        markDeleteBtn.classList.add('active');
+                    }
+                });
+                locLabelRow.append(locLabel, markDeleteBtn);
                 const locInput = document.createElement('input');
                 locInput.type = 'text';
                 locInput.placeholder = 'e.g. Bldg B - Rack 14';
                 locInput.value = locations[i] || '';
                 locInput.classList.add('location-part-input');
-                locGroup.append(locLabel, locInput);
+                locGroup.append(locLabelRow, locInput);
                 dynamicRemarksContainer.appendChild(locGroup);
 
                 let activeIndex = -1;
@@ -2316,7 +2390,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         }); });
         inventoryTableBody.addEventListener('click', (event) => { const targetCell = event.target.closest('.editable-breakdown'); if (targetCell) {
             checkAccess(() => {
-                currentEditingRow = targetCell.closest('tr'); editBreakdownInput.value = formatStockingQty(currentEditingRow.dataset.stockingQty); const remarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const locations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const parts = getBreakdownParts(formatStockingQty(currentEditingRow.dataset.stockingQty)); generateRemarksInputs(parts.length, remarks, locations); if (editBreakdownItemCode) editBreakdownItemCode.textContent = currentEditingRow.dataset.code; if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.remove('stocking-qty-floating'); document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight')); updateEditBreakdownPreview(); editBreakdownModal.style.display = 'block';
+                currentEditingRow = targetCell.closest('tr'); editBreakdownInput.value = formatStockingQty(currentEditingRow.dataset.stockingQty); const remarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const locations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const parts = getBreakdownParts(formatStockingQty(currentEditingRow.dataset.stockingQty)); lastEditBreakdownParts = parts; markedForDeletionIndices = new Set(); generateRemarksInputs(parts.length, remarks, locations); if (editBreakdownItemCode) editBreakdownItemCode.textContent = currentEditingRow.dataset.code; if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.remove('stocking-qty-floating'); document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight')); updateEditBreakdownPreview(); editBreakdownModal.style.display = 'block';
             });
         }
         });
@@ -2367,7 +2441,18 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 setButtonLoading(confirmImportButton, false);
             }
         });
-        editBreakdownInput.addEventListener('input', function() { const parts = getBreakdownParts(formatStockingQty(this.value)); const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value); const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value); generateRemarksInputs(parts.length, currentRemarks, currentLocations); updateEditBreakdownPreview(); });
+        editBreakdownInput.addEventListener('input', function() {
+            const newParts = getBreakdownParts(formatStockingQty(this.value));
+            const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
+            const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
+            const mapping = diffBreakdownPartsWithFallback(lastEditBreakdownParts, newParts, markedForDeletionIndices);
+            const alignedRemarks = mapping.map(oldIdx => oldIdx === -1 ? '' : (currentRemarks[oldIdx] || ''));
+            const alignedLocations = mapping.map(oldIdx => oldIdx === -1 ? '' : (currentLocations[oldIdx] || ''));
+            lastEditBreakdownParts = newParts;
+            markedForDeletionIndices = new Set(); // marks were relative to the old part indices; stale now that positions shifted
+            generateRemarksInputs(newParts.length, alignedRemarks, alignedLocations);
+            updateEditBreakdownPreview();
+        });
         dynamicRemarksContainer.addEventListener('input', function(event) { if (event.target.classList.contains('remark-part-input') || event.target.classList.contains('location-part-input')) { updateEditBreakdownPreview(); } });
         saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryToLocalStorage([currentEditingRow.dataset.code]); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); showToast('Item updated.', 'success'); editBreakdownModal.style.display = 'none'; });
         deleteItemInModalButton.addEventListener('click', async () => {

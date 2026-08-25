@@ -15,9 +15,15 @@ export async function onRequestPost(context) {
     );
   }
 
+  if (!env.SYSTEM_PASSWORD) {
+    return Response.json(
+      { error: 'Server misconfigured: SYSTEM_PASSWORD is not set. Refusing to authenticate with a default password.' },
+      { status: 500, headers: corsHeaders }
+    );
+  }
+
   const authHeader = request.headers.get('Authorization');
-  const expectedPassword = env.SYSTEM_PASSWORD || '101010';
-  if (!authHeader || authHeader !== `Bearer ${expectedPassword}`) {
+  if (!authHeader || authHeader !== `Bearer ${env.SYSTEM_PASSWORD}`) {
     return Response.json({ error: 'Unauthorized. Incorrect password.' }, { status: 401, headers: corsHeaders });
   }
 

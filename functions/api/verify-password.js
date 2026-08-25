@@ -10,9 +10,15 @@ export async function onRequestPost(context) {
 
   try {
     const { password } = await request.json();
-    const expectedPassword = env.SYSTEM_PASSWORD || '101010';
 
-    if (password === expectedPassword) {
+    if (!env.SYSTEM_PASSWORD) {
+      return Response.json(
+        { error: 'Server misconfigured: SYSTEM_PASSWORD is not set. Refusing to authenticate with a default password.' },
+        { status: 500, headers: corsHeaders }
+      );
+    }
+
+    if (password === env.SYSTEM_PASSWORD) {
       return Response.json({ success: true }, { headers: corsHeaders });
     } else {
       return Response.json(
