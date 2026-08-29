@@ -987,7 +987,14 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             function renderPanel(filterText) {
                 const all = getOptions();
                 const q = filterText.trim().toLowerCase();
-                currentOptions = (q ? all.filter(opt => opt.value.toLowerCase().includes(q)) : all).slice(0, maxResults);
+                currentOptions = q
+                    ? all
+                        .map(opt => ({ opt, matchIdx: opt.value.toLowerCase().indexOf(q) }))
+                        .filter(x => x.matchIdx !== -1)
+                        .sort((a, b) => a.matchIdx - b.matchIdx) // earlier match position ranks first; stable sort preserves the original stock/alphabetical order among ties
+                        .map(x => x.opt)
+                        .slice(0, maxResults)
+                    : all.slice(0, maxResults);
                 highlightedIndex = currentOptions.length ? 0 : -1;
                 panel.innerHTML = currentOptions.length === 0
                     ? `<div class="combobox-empty">${escapeHtml(emptyText)}</div>`
