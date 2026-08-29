@@ -515,10 +515,9 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             }
         }
 
-        function saveInventoryToLocalStorage(changedCodes = null, deletedCodes = null) { saveDataToAPI(['inventoryData'], { changedCodes, deletedCodes }); }
-        function loadInventoryFromLocalStorage() {}
-        function saveHistoryToLocalStorage(newEntries = null) { saveDataToAPI(['transactionHistory'], {}, newEntries); }
-        function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); if (skipSync) return newLog; prependHistoryLog(newLog); saveHistoryToLocalStorage([newLog]); return newLog; }
+        function saveInventoryData(changedCodes = null, deletedCodes = null) { saveDataToAPI(['inventoryData'], { changedCodes, deletedCodes }); }
+        function saveHistoryData(newEntries = null) { saveDataToAPI(['transactionHistory'], {}, newEntries); }
+        function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); if (skipSync) return newLog; prependHistoryLog(newLog); saveHistoryData([newLog]); return newLog; }
         function getHistoryRowBadgeClass(action) {
             const a = (action || '').toUpperCase();
             if (a.includes('DELETE') || a.includes('CLEAR')) return 'history-badge-red';
@@ -656,7 +655,6 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             historyRenderedCount++;
             updateHistoryLoadMoreUI();
         }
-        function loadHistoryFromLocalStorage() {}
 
         // ---- Detailed Item Transaction Report ----
         function getActionBadgeClass(action) {
@@ -883,6 +881,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         function formatStockingQtyAndRemarksForDisplay(breakdownString, remarksArray, locationsArray, shorten) { const parts = getBreakdownParts(breakdownString); if (!parts.length || (parts.length === 1 && !parts[0])) return ''; locationsArray = locationsArray || []; return parts.map((part, index) => { const remark = remarksArray[index] || ''; const colorClass = getColorClassForRemark(remark); const loc = (locationsArray[index] || '').trim(); const locTag = loc ? `<span class="location-tag" title="Building/Rack">${escapeHtml(loc)}</span>` : ''; const trimmedPart = part.trim(); let displayText = trimmedPart; let titleAttr = ''; if (shorten) { const multMatch = trimmedPart.match(/^([\d.,]+)\s*×/); if (multMatch) { displayText = `(${multMatch[1]})`; titleAttr = ` title="${escapeHtml(trimmedPart)}"`; } } return `<span class="${colorClass}"${titleAttr}>${escapeHtml(displayText)}</span>${locTag}`; }).join(' | '); }
         function convertToExcelFormula(stockingQty) { if (!stockingQty || !stockingQty.trim()) return 0; let formula = String(stockingQty).trim(); formula = formula.replace(/×|x|\*/gi, '*'); formula = formula.replace(/\|/g, '+'); formula = formula.replace(/\s*[lL]\s*/g, '+'); formula = formula.replace(/,/g, ''); formula = formula.replace(/\s+/g, ' '); if (!formula) return 0; return `=${formula}`; }
         function generateBackupFilename() { const dateValue = currentDateInput.value; const [year, month, day] = dateValue.split('-'); const shortYear = year.slice(-2); const formattedDate = `${month}-${day}-${shortYear}`; const timeValue = currentTimeInput.value; let [hours, minutes] = timeValue.split(':'); hours = parseInt(hours, 10); const ampm = hours >= 12 ? 'PM' : 'AM'; hours = hours % 12; hours = hours ? hours : 12; const formattedTime = `${hours}-${minutes}-${ampm}`; const shiftValue = currentShiftSelect.value; const shiftAbbreviation = shiftValue === 'Day Shift' ? 'DS' : 'NS'; return `backup_${formattedDate}_${formattedTime}_${shiftAbbreviation}.xlsx`; }
+        function generateReportFilename() { const dateValue = currentDateInput.value; const [year, month, day] = dateValue.split('-'); const shortYear = year.slice(-2); const formattedDate = `${month}-${day}-${shortYear}`; const timeValue = currentTimeInput.value; let [hours, minutes] = timeValue.split(':'); hours = parseInt(hours, 10); const ampm = hours >= 12 ? 'PM' : 'AM'; hours = hours % 12; hours = hours ? hours : 12; const formattedTime = `${hours}-${minutes}-${ampm}`; const shiftValue = currentShiftSelect.value; const shiftAbbreviation = shiftValue === 'Day Shift' ? 'DS' : 'NS'; return `report_${formattedDate}_${formattedTime}_${shiftAbbreviation}.xlsx`; }
         function isShortenBreakdownOn() { return shortenBreakdownCheckbox ? shortenBreakdownCheckbox.checked : false; }
         function isSimplifyBreakdownOn() { return simplifyBreakdownCheckbox ? simplifyBreakdownCheckbox.checked : false; }
 
@@ -946,7 +945,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, remarks, locations);
             });
         }
-        function renderRow(item, shouldSave = true) { const row = inventoryTableBody.insertRow(); originalRowsOrder.push(row); rowsByCode.set(item.code, row); row.dataset.code = item.code; row.dataset.stockingQty = item.stockingQty; row.dataset.remarks = JSON.stringify(item.remarks); row.dataset.locations = JSON.stringify(item.locations || []); const formattedBreakdown = formatStockingQty(item.stockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); const codeCell = row.insertCell(0); codeCell.textContent = item.code; codeCell.dataset.label = "MATERIAL CODE:"; const breakdownCell = row.insertCell(1); breakdownCell.innerHTML = renderBreakdownCellHtml(item.stockingQty, item.remarks, item.locations || []); breakdownCell.classList.add('editable-breakdown'); breakdownCell.dataset.label = "Stocking Qty:"; const totalCell = row.insertCell(2); totalCell.textContent = total.toLocaleString(); totalCell.classList.add('total-per-row', 'column-hidden'); totalCell.dataset.label = "Total per Row:"; const remarksCell = row.insertCell(3); remarksCell.textContent = item.remarks.filter(r => r).join(' | '); remarksCell.classList.add('column-hidden'); remarksCell.dataset.label = "Remarks:"; if (shouldSave) { saveInventoryToLocalStorage(); } }
+        function renderRow(item, shouldSave = true) { const row = inventoryTableBody.insertRow(); originalRowsOrder.push(row); rowsByCode.set(item.code, row); row.dataset.code = item.code; row.dataset.stockingQty = item.stockingQty; row.dataset.remarks = JSON.stringify(item.remarks); row.dataset.locations = JSON.stringify(item.locations || []); const formattedBreakdown = formatStockingQty(item.stockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); const codeCell = row.insertCell(0); codeCell.textContent = item.code; codeCell.dataset.label = "MATERIAL CODE:"; const breakdownCell = row.insertCell(1); breakdownCell.innerHTML = renderBreakdownCellHtml(item.stockingQty, item.remarks, item.locations || []); breakdownCell.classList.add('editable-breakdown'); breakdownCell.dataset.label = "Stocking Qty:"; const totalCell = row.insertCell(2); totalCell.textContent = total.toLocaleString(); totalCell.classList.add('total-per-row', 'column-hidden'); totalCell.dataset.label = "Total per Row:"; const remarksCell = row.insertCell(3); remarksCell.textContent = item.remarks.filter(r => r).join(' | '); remarksCell.classList.add('column-hidden'); remarksCell.dataset.label = "Remarks:"; if (shouldSave) { saveInventoryData(); } }
 
         function escapeHtml(str) {
             return String(str)
@@ -955,6 +954,92 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
+        }
+
+        // Replaces a native <input list="..."> datalist combobox with a custom filtered
+        // dropdown panel. Native <datalist> gets sluggish in most browsers once it holds
+        // hundreds+ of <option> elements (this app can have 1,500+ SKUs) — this renders
+        // only the top matches (capped at maxResults) instead, so typing stays responsive
+        // regardless of total inventory size.
+        // - getOptions(): () => [{ value, label }] — called fresh each time the panel opens/filters
+        // - onSelect(value): called when the user picks an item (click, Enter, or Tab)
+        // Returns { selectHighlighted(), isOpen(), close() } so the caller's own keydown
+        // handler can trigger selection (e.g. on Enter/Tab) before falling back to its
+        // own logic.
+        function attachSearchableCombobox(input, { getOptions, onSelect, maxResults = 50, emptyText = 'No matches' }) {
+            const wrapper = input.parentElement;
+            if (getComputedStyle(wrapper).position === 'static') wrapper.style.position = 'relative';
+
+            const panel = document.createElement('div');
+            panel.className = 'combobox-panel';
+            panel.style.display = 'none';
+            wrapper.appendChild(panel);
+
+            let currentOptions = [];
+            let highlightedIndex = -1;
+
+            function updateHighlight() {
+                Array.from(panel.children).forEach((el, i) => el.classList.toggle('is-highlighted', i === highlightedIndex));
+                const activeEl = panel.children[highlightedIndex];
+                if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+            }
+
+            function renderPanel(filterText) {
+                const all = getOptions();
+                const q = filterText.trim().toLowerCase();
+                currentOptions = (q ? all.filter(opt => opt.value.toLowerCase().includes(q)) : all).slice(0, maxResults);
+                highlightedIndex = currentOptions.length ? 0 : -1;
+                panel.innerHTML = currentOptions.length === 0
+                    ? `<div class="combobox-empty">${escapeHtml(emptyText)}</div>`
+                    : currentOptions.map((opt, i) => `<div class="combobox-option${i === 0 ? ' is-highlighted' : ''}" data-idx="${i}"><span class="combobox-option-value">${escapeHtml(opt.value)}</span>${opt.label ? `<span class="combobox-option-label">${opt.label}</span>` : ''}</div>`).join('');
+                panel.style.display = 'block';
+            }
+
+            function closePanel() {
+                panel.style.display = 'none';
+                currentOptions = [];
+                highlightedIndex = -1;
+            }
+
+            function selectIndex(i) {
+                const opt = currentOptions[i];
+                if (!opt) return;
+                input.value = opt.value;
+                closePanel();
+                onSelect(opt.value);
+            }
+
+            input.addEventListener('input', () => renderPanel(input.value));
+            input.addEventListener('focus', () => renderPanel(input.value));
+
+            input.addEventListener('keydown', (e) => {
+                if (panel.style.display === 'none') return;
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (currentOptions.length) { highlightedIndex = (highlightedIndex + 1) % currentOptions.length; updateHighlight(); }
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (currentOptions.length) { highlightedIndex = (highlightedIndex - 1 + currentOptions.length) % currentOptions.length; updateHighlight(); }
+                } else if (e.key === 'Escape') {
+                    closePanel();
+                }
+            });
+
+            // mousedown (not click) so this fires before the input's blur/close-on-outside-click
+            panel.addEventListener('mousedown', (e) => {
+                const optionEl = e.target.closest('.combobox-option');
+                if (!optionEl) return;
+                e.preventDefault();
+                selectIndex(parseInt(optionEl.dataset.idx, 10));
+            });
+
+            document.addEventListener('click', (e) => { if (!wrapper.contains(e.target)) closePanel(); });
+
+            return {
+                selectHighlighted: () => { if (panel.style.display !== 'none' && highlightedIndex > -1) { selectIndex(highlightedIndex); return true; } return false; },
+                isOpen: () => panel.style.display !== 'none',
+                close: closePanel
+            };
         }
         function highlightMatch(text, term) {
             const safeText = escapeHtml(text);
@@ -1080,7 +1165,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             shownEl.textContent = shownCount.toLocaleString();
             holdEl.textContent = holdCount.toLocaleString();
         }
-        function exportReportFile() { const dataForExport = [['MATERIAL CODE', 'Stocking Qty', 'Total per Row', 'Remarks', 'Building/Rack']]; originalRowsOrder.forEach(row => { const code = row.dataset.code; const stockingQty = row.dataset.stockingQty; const formula = convertToExcelFormula(stockingQty); const remarks = JSON.parse(row.dataset.remarks || '[]').join(' | '); const locations = JSON.parse(row.dataset.locations || '[]').filter(l => l).join(' | '); dataForExport.push([code, stockingQty, formula, remarks, locations]); }); if (dataForExport.length <= 1) { showToast('No data to export!', 'error'); return; } const ws = XLSX.utils.aoa_to_sheet(dataForExport); for (let i = 1; i < dataForExport.length; i++) { const cellAddress = 'C' + (i + 1); const cell = ws[cellAddress]; if (cell && typeof cell.v === 'string' && cell.v.startsWith('=')) { cell.t = 'f'; cell.f = cell.v.substring(1); delete cell.v; } } const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Inventory Data"); XLSX.writeFile(wb, generateBackupFilename().replace("backup_", "report_")); logTransaction('EXPORT REPORT', '-', 'Human-readable report exported.'); }
+        function exportReportFile() { const dataForExport = [['MATERIAL CODE', 'Stocking Qty', 'Total per Row', 'Remarks', 'Building/Rack']]; originalRowsOrder.forEach(row => { const code = row.dataset.code; const stockingQty = row.dataset.stockingQty; const formula = convertToExcelFormula(stockingQty); const remarks = JSON.parse(row.dataset.remarks || '[]').join(' | '); const locations = JSON.parse(row.dataset.locations || '[]').filter(l => l).join(' | '); dataForExport.push([code, stockingQty, formula, remarks, locations]); }); if (dataForExport.length <= 1) { showToast('No data to export!', 'error'); return; } const ws = XLSX.utils.aoa_to_sheet(dataForExport); for (let i = 1; i < dataForExport.length; i++) { const cellAddress = 'C' + (i + 1); const cell = ws[cellAddress]; if (cell && typeof cell.v === 'string' && cell.v.startsWith('=')) { cell.t = 'f'; cell.f = cell.v.substring(1); delete cell.v; } } const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Inventory Data"); XLSX.writeFile(wb, generateReportFilename()); logTransaction('EXPORT REPORT', '-', 'Human-readable report exported.'); }
         function printInventory() {
             const dateValue = currentDateInput.value;
             const [year, month, day] = dateValue.split('-');
@@ -1345,7 +1430,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                         renderRow({ code: item.MATERIAL_CODE, stockingQty: String(item.STOCKING_QTY || ''), remarks: Array.isArray(remarksArray) ? remarksArray : [], locations: Array.isArray(locationsArray) ? locationsArray : [] }, false);
                     });
                     applyFiltersAndSort();
-                    saveInventoryToLocalStorage();
+                    saveInventoryData();
 
                     // 2. Restore Transaction History
                     const histSheet = workbook.Sheets["Transaction_History"];
@@ -1358,7 +1443,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                             details: h.Details
                         }));
                         renderHistoryLog();
-                        saveHistoryToLocalStorage();
+                        saveHistoryData();
                     }
 
                     // 3. Restore Pallet Capacities
@@ -1955,9 +2040,9 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             renderBulkList();
         }
 
+        let bulkDeliveryComboboxOptions = [];
         openBulkDeliveriesModalButton.addEventListener('click', () => {
             checkAccess(() => {
-                itemListBulkDatalist.innerHTML = '';
                 const sortedRows = [...originalRowsOrder].sort((a, b) => {
                     const stockA = calculateSingleStockingQtyTotal(formatStockingQty(a.dataset.stockingQty));
                     const stockB = calculateSingleStockingQtyTotal(formatStockingQty(b.dataset.stockingQty));
@@ -1967,14 +2052,11 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
 
                     return (a.dataset.code || '').localeCompare(b.dataset.code || '');
                 });
-                sortedRows.forEach(row => {
+                bulkDeliveryComboboxOptions = sortedRows.map(row => {
                     const code = row.dataset.code;
                     const totalStock = calculateSingleStockingQtyTotal(formatStockingQty(row.dataset.stockingQty));
                     const hasStock = totalStock > 0;
-                    const option = document.createElement('option');
-                    option.value = code;
-                    option.label = hasStock ? `🟢 (${totalStock.toLocaleString()})` : "🔴 (Empty)";
-                    itemListBulkDatalist.appendChild(option);
+                    return { value: code, label: hasStock ? `🟢 (${totalStock.toLocaleString()})` : '🔴 (Empty)' };
                 });
 
                 pendingBulkDeliveries = [];
@@ -2004,7 +2086,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
 
         bulkDeliveryInputs.forEach((input, index) => {
             input.addEventListener('keydown', (e) => {
-                // If it's an input with a datalist, let native arrow navigation work for the dropdown
+                // Let the custom combobox handle arrow-key navigation of its own suggestion list
                 if ((input === bulkDelItemSearch || input === bulkDelSharedRemarks) && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
                     return;
                 }
@@ -2088,26 +2170,8 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             }, 10);
         }
 
-        // Datalist selection detection via keyboard native change event
-        bulkDelItemSearch.addEventListener('change', () => {
-            const typedValue = bulkDelItemSearch.value.trim().toLowerCase();
-            const options = Array.from(itemListBulkDatalist.options);
-            const exactMatch = options.some(opt => opt.value.toLowerCase() === typedValue);
-
-            if (exactMatch) {
-                handleBulkDelFocusShift();
-            }
-        });
-
-        // If the user selects an item from the datalist dropdown (e.g. via Click or Enter),
-        // we capture the 'input' event with 'insertReplacementText' and immediately shift focus.
-        // Also auto-fills the pallet capacity field, in priority order: an already-known
-        // capacity for this code, then whatever the item's own stocking breakdown implies
-        // (most reliable — no guessing), then a "N PCS/PLT" hint in its remarks as a last resort.
-        bulkDelItemSearch.addEventListener('input', (e) => {
-            const code = bulkDelItemSearch.value.trim();
+        function autofillBulkDeliveryCapacity(code) {
             if (!code) return;
-
             const row = rowsByCode.get(code);
 
             if (palletCapacities[code]) {
@@ -2136,56 +2200,24 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     bulkDelPalletCapacity.value = '';
                 }
             }
+        }
 
-            // Datalist selection detection
-            if (e.inputType === 'insertReplacementText') {
-                handleBulkDelFocusShift();
-            }
+        const bulkDeliveryCombobox = attachSearchableCombobox(bulkDelItemSearch, {
+            getOptions: () => bulkDeliveryComboboxOptions,
+            onSelect: (code) => { autofillBulkDeliveryCapacity(code); handleBulkDelFocusShift(); }
+        });
+
+        bulkDelItemSearch.addEventListener('input', () => {
+            autofillBulkDeliveryCapacity(bulkDelItemSearch.value.trim());
         });
 
         bulkDelItemSearch.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === 'Tab') {
-                if (e.key === 'Tab') e.preventDefault(); // allow enter to select datalist item
+                if (e.key === 'Tab') e.preventDefault();
+                if (bulkDeliveryCombobox.selectHighlighted()) return; // onSelect already shifts focus
 
                 setTimeout(() => {
-                    // Prevent shifting focus twice if 'insertReplacementText' or 'change' already handled it
                     if (document.activeElement === bulkDelQtyInput || document.activeElement === bulkDelPalletCapacity) return;
-
-                    const typedValue = bulkDelItemSearch.value.trim().toLowerCase();
-
-                    if (typedValue) {
-                        let exactMatch = false;
-                        let firstMatch = null;
-
-                        const options = Array.from(itemListBulkDatalist.options);
-                        for (const option of options) {
-                            const optionValue = option.value.toLowerCase();
-                            if (optionValue === typedValue) {
-                                exactMatch = true;
-                                break;
-                            }
-                            if (!firstMatch && optionValue.includes(typedValue)) {
-                                firstMatch = option.value;
-                            }
-                        }
-
-                        if (exactMatch) {
-                            handleBulkDelFocusShift();
-                            return;
-                        }
-
-                        if (!exactMatch && firstMatch) {
-                            bulkDelItemSearch.value = firstMatch;
-
-                            // Manually trigger the input event so capacity is updated if needed
-                            const inputEvent = new Event('input', {
-                                bubbles: true,
-                                cancelable: true,
-                            });
-                            bulkDelItemSearch.dispatchEvent(inputEvent);
-                        }
-                    }
-
                     const capacity = bulkDelPalletCapacity.value;
                     if (capacity && capacity.trim() !== '') {
                         bulkDelQtyInput.focus();
@@ -2388,7 +2420,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         clearHistoryButton.addEventListener('click', () => { checkAccess(async () => {
             setButtonLoading(clearHistoryButton, true);
             try {
-                if (await customConfirm('Are you sure?')) { transactionHistory = []; historyFilteredCache = []; historyRenderedCount = 0; historyTableBody.innerHTML = ''; updateHistoryLoadMoreUI(); saveHistoryToLocalStorage(); logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); }
+                if (await customConfirm('Are you sure?')) { transactionHistory = []; historyFilteredCache = []; historyRenderedCount = 0; historyTableBody.innerHTML = ''; updateHistoryLoadMoreUI(); saveHistoryData(); logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); }
             } finally {
                 setButtonLoading(clearHistoryButton, false);
             }
@@ -2411,7 +2443,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         triggerClearAllButton.addEventListener('click', async () => {
             setButtonLoading(triggerClearAllButton, true);
             try {
-                if(await customConfirm('This will delete all items in the inventory. Are you sure?')) { inventoryTableBody.innerHTML = ''; originalRowsOrder = []; rowsByCode = new Map(); applyFiltersAndSort(); saveInventoryToLocalStorage(); logTransaction('CLEAR ALL', '-', 'All inventory data cleared.'); }
+                if(await customConfirm('This will delete all items in the inventory. Are you sure?')) { inventoryTableBody.innerHTML = ''; originalRowsOrder = []; rowsByCode = new Map(); applyFiltersAndSort(); saveInventoryData(); logTransaction('CLEAR ALL', '-', 'All inventory data cleared.'); }
                 clearChoiceModal.style.display = 'none';
             } finally {
                 setButtonLoading(triggerClearAllButton, false);
@@ -2430,7 +2462,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 const codesToClear = selectedCheckboxes.map(cb => cb.value);
                 if (await customConfirm(`Are you sure you want to clear the quantity for ${codesToClear.length} selected item(s)?`)) {
                     codesToClear.forEach(code => { const targetRow = rowsByCode.get(code); if (targetRow) { targetRow.dataset.stockingQty = ''; targetRow.dataset.remarks = '[]'; targetRow.dataset.locations = '[]'; targetRow.cells[1].innerHTML = ''; targetRow.cells[2].textContent = '0'; targetRow.cells[3].textContent = ''; } });
-                    saveInventoryToLocalStorage(codesToClear);
+                    saveInventoryData(codesToClear);
                     logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : ''));
                     applyFiltersAndSort();
                     showToast(`Successfully cleared quantities for ${codesToClear.length} item(s).`, 'success');
@@ -2449,26 +2481,31 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 setButtonLoading(confirmImportButton, false);
             }
         });
+        let editBreakdownDebounceTimer = null;
         editBreakdownInput.addEventListener('input', function() {
-            const newParts = getBreakdownParts(formatStockingQty(this.value));
-            const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
-            const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
-            const mapping = diffBreakdownPartsWithFallback(lastEditBreakdownParts, newParts, markedForDeletionIndices);
-            const alignedRemarks = mapping.map(oldIdx => oldIdx === -1 ? '' : (currentRemarks[oldIdx] || ''));
-            const alignedLocations = mapping.map(oldIdx => oldIdx === -1 ? '' : (currentLocations[oldIdx] || ''));
-            lastEditBreakdownParts = newParts;
-            markedForDeletionIndices = new Set(); // marks were relative to the old part indices; stale now that positions shifted
-            generateRemarksInputs(newParts.length, alignedRemarks, alignedLocations);
-            updateEditBreakdownPreview();
+            clearTimeout(editBreakdownDebounceTimer);
+            const val = this.value;
+            editBreakdownDebounceTimer = setTimeout(() => {
+                const newParts = getBreakdownParts(formatStockingQty(val));
+                const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
+                const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
+                const mapping = diffBreakdownPartsWithFallback(lastEditBreakdownParts, newParts, markedForDeletionIndices);
+                const alignedRemarks = mapping.map(oldIdx => oldIdx === -1 ? '' : (currentRemarks[oldIdx] || ''));
+                const alignedLocations = mapping.map(oldIdx => oldIdx === -1 ? '' : (currentLocations[oldIdx] || ''));
+                lastEditBreakdownParts = newParts;
+                markedForDeletionIndices = new Set(); // marks were relative to the old part indices; stale now that positions shifted
+                generateRemarksInputs(newParts.length, alignedRemarks, alignedLocations);
+                updateEditBreakdownPreview();
+            }, 200);
         });
         dynamicRemarksContainer.addEventListener('input', function(event) { if (event.target.classList.contains('remark-part-input') || event.target.classList.contains('location-part-input')) { updateEditBreakdownPreview(); } });
-        saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryToLocalStorage([currentEditingRow.dataset.code]); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); showToast('Item updated.', 'success'); editBreakdownModal.style.display = 'none'; });
+        saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryData([currentEditingRow.dataset.code]); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); showToast('Item updated.', 'success'); editBreakdownModal.style.display = 'none'; });
         deleteItemInModalButton.addEventListener('click', async () => {
             if (!currentEditingRow) return;
             const codeToDelete = currentEditingRow.dataset.code;
             setButtonLoading(deleteItemInModalButton, true);
             try {
-                if (await customConfirm(`Are you sure you want to delete ${codeToDelete}?`)) { const index = originalRowsOrder.findIndex(row => row === currentEditingRow); if (index > -1) originalRowsOrder.splice(index, 1); rowsByCode.delete(codeToDelete); applyFiltersAndSort(); saveInventoryToLocalStorage(null, [codeToDelete]); logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.'); editBreakdownModal.style.display = 'none'; }
+                if (await customConfirm(`Are you sure you want to delete ${codeToDelete}?`)) { const index = originalRowsOrder.findIndex(row => row === currentEditingRow); if (index > -1) originalRowsOrder.splice(index, 1); rowsByCode.delete(codeToDelete); applyFiltersAndSort(); saveInventoryData(null, [codeToDelete]); logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.'); editBreakdownModal.style.display = 'none'; }
             } finally {
                 setButtonLoading(deleteItemInModalButton, false);
             }
@@ -2538,10 +2575,9 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             renderWithdrawList();
         };
 
+        let bulkWithdrawComboboxOptions = [];
         openBulkWithdrawModalButton.addEventListener('click', () => {
             checkAccess(() => {
-                itemListWithdrawDatalist.innerHTML = '';
-
                 const sortedRows = [...originalRowsOrder].sort((a, b) => {
                     const stockA = getWithdrawableStock(a);
                     const stockB = getWithdrawableStock(b);
@@ -2550,16 +2586,10 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     return (a.dataset.code || '').localeCompare(b.dataset.code || '');
                 });
 
-                sortedRows.forEach(row => {
-                    const code = row.dataset.code;
-                    const withdrawableStock = getWithdrawableStock(row);
-                    if (withdrawableStock > 0) {
-                        const option = document.createElement('option');
-                        option.value = code;
-                        option.label = `🟢 Avail: ${withdrawableStock.toLocaleString()}`;
-                        itemListWithdrawDatalist.appendChild(option);
-                    }
-                });
+                bulkWithdrawComboboxOptions = sortedRows
+                    .map(row => ({ code: row.dataset.code, stock: getWithdrawableStock(row) }))
+                    .filter(x => x.stock > 0)
+                    .map(x => ({ value: x.code, label: `🟢 Avail: ${x.stock.toLocaleString()}` }));
 
                 pendingBulkWithdrawals = [];
                 bulkWithdrawItemSearch.value = '';
@@ -2578,7 +2608,7 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
 
         bulkWithdrawInputs.forEach((input, index) => {
             input.addEventListener('keydown', (e) => {
-                // If it's the search input with a datalist, let native arrow navigation work for the dropdown
+                // Let the custom combobox handle arrow-key navigation of its own suggestion list
                 if (input === bulkWithdrawItemSearch && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
                     return;
                 }
@@ -2599,60 +2629,19 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             });
         });
 
-        // Capture datalist selection explicitly
-        bulkWithdrawItemSearch.addEventListener('input', (e) => {
-            if (e.inputType === 'insertReplacementText') {
-                setTimeout(() => bulkWithdrawQtyInput.focus(), 10);
-            }
-        });
-
-        // Capture datalist selection via keyboard change event
-        bulkWithdrawItemSearch.addEventListener('change', () => {
-            const typedValue = bulkWithdrawItemSearch.value.trim().toLowerCase();
-            const options = Array.from(itemListWithdrawDatalist.options);
-            const exactMatch = options.some(opt => opt.value.toLowerCase() === typedValue);
-
-            if (exactMatch) {
-                setTimeout(() => bulkWithdrawQtyInput.focus(), 10);
-            }
+        const bulkWithdrawCombobox = attachSearchableCombobox(bulkWithdrawItemSearch, {
+            getOptions: () => bulkWithdrawComboboxOptions,
+            onSelect: () => { bulkWithdrawQtyInput.focus(); }
         });
 
         bulkWithdrawItemSearch.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === 'Tab') {
-                if (e.key === 'Tab') e.preventDefault(); // allow enter to select datalist item
+                if (e.key === 'Tab') e.preventDefault();
+                if (bulkWithdrawCombobox.selectHighlighted()) return; // onSelect already shifts focus
 
                 setTimeout(() => {
-                    if (document.activeElement === bulkWithdrawQtyInput) return; // Already focused
-
-                    const typedValue = bulkWithdrawItemSearch.value.trim().toLowerCase();
-
-                    if (typedValue) {
-                        let exactMatch = false;
-                        let firstMatch = null;
-
-                        const options = Array.from(itemListWithdrawDatalist.options);
-                        for (const option of options) {
-                            const optionValue = option.value.toLowerCase();
-                            if (optionValue === typedValue) {
-                                exactMatch = true;
-                                break;
-                            }
-                            if (!firstMatch && optionValue.includes(typedValue)) {
-                                firstMatch = option.value;
-                            }
-                        }
-
-                        if (exactMatch) {
-                            bulkWithdrawQtyInput.focus();
-                            return;
-                        }
-
-                        if (!exactMatch && firstMatch) {
-                            bulkWithdrawItemSearch.value = firstMatch;
-                            bulkWithdrawQtyInput.focus();
-                        }
-                    }
-                }, 150); // increased timeout to let native datalist event win
+                    if (document.activeElement === bulkWithdrawQtyInput) return;
+                }, 150);
             }
         });
 
