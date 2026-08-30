@@ -2,10 +2,6 @@ name = "cohin-inventory-system"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = "."
 
-kv_namespaces = [
-  { binding = "COHIN_KV", id = "f74ecf72092943bf9ff972b6fcdff9cf" }
-]
-
 # D1 database binding -- create the database first (Cloudflare dashboard,
 # or `wrangler d1 create cohin-db`), then replace REPLACE_WITH_YOUR_DATABASE_ID
 # below with the database_id it gives you. You can also add this binding

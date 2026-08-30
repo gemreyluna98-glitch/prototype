@@ -1,9 +1,4 @@
-const corsHeaders = {
-  'Access-Control-Allow-Credentials': 'true',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,OPTIONS',
-  'Access-Control-Allow-Headers': 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
-};
+import { corsHeaders, verifyAuth } from './_utils.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -15,22 +10,21 @@ export async function onRequestGet(context) {
     );
   }
 
-  if (!env.SYSTEM_PASSWORD) {
-    return Response.json(
-      { error: 'Server misconfigured: SYSTEM_PASSWORD is not set. Refusing to authenticate with a default password.' },
-      { status: 500, headers: corsHeaders }
-    );
-  }
-
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || authHeader !== `Bearer ${env.SYSTEM_PASSWORD}`) {
-    return Response.json({ error: 'Unauthorized. Incorrect password.' }, { status: 401, headers: corsHeaders });
-  }
+  const auth = await verifyAuth(request, env);
+  if (!auth.ok) return auth.response;
 
   try {
+    // Optional server-side pagination for transaction history (not yet used by
+    // the frontend, which still requests the full list) — capped at 5,000 rows
+    // even without pagination params, as a safety net against unbounded growth.
+    const url = new URL(request.url);
+    const historyPage = parseInt(url.searchParams.get('historyPage') || '0', 10);
+    const historyLimit = Math.min(parseInt(url.searchParams.get('historyLimit') || '5000', 10), 5000);
+    const historyOffset = historyPage * historyLimit;
+
     const [itemsResult, historyResult, palletResult] = await Promise.all([
       env.DB.prepare('SELECT code, stocking_qty, remarks, locations FROM items ORDER BY sort_order').all(),
-      env.DB.prepare('SELECT timestamp, action, code, details, meta FROM transaction_history ORDER BY id DESC').all(),
+      env.DB.prepare('SELECT timestamp, action, code, details, meta FROM transaction_history ORDER BY id DESC LIMIT ? OFFSET ?').bind(historyLimit, historyOffset).all(),
       env.DB.prepare('SELECT code, capacity FROM pallet_capacities').all(),
     ]);
 
@@ -63,8 +57,4 @@ export async function onRequestGet(context) {
       { status: 500, headers: corsHeaders }
     );
   }
-}
-
-export async function onRequestOptions() {
-  return new Response(null, { status: 200, headers: corsHeaders });
 }

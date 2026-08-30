@@ -1,12 +1,7 @@
+import { corsHeaders, createSessionToken } from './_utils.js';
+
 export async function onRequestPost(context) {
   const { request, env } = context;
-
-  const corsHeaders = {
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
-  };
 
   try {
     const { password } = await request.json();
@@ -19,7 +14,11 @@ export async function onRequestPost(context) {
     }
 
     if (password === env.SYSTEM_PASSWORD) {
-      return Response.json({ success: true }, { headers: corsHeaders });
+      // Issue a signed, short-lived session token instead of handing back the
+      // password itself — this is what the frontend stores and sends as the
+      // Bearer credential on every later request (see _utils.js verifyAuth).
+      const token = await createSessionToken(env);
+      return Response.json({ success: true, token }, { headers: corsHeaders });
     } else {
       return Response.json(
         { success: false, error: 'Incorrect password' },
@@ -32,16 +31,4 @@ export async function onRequestPost(context) {
       { status: 400, headers: corsHeaders }
     );
   }
-}
-
-export async function onRequestOptions() {
-  return new Response(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST,OPTIONS',
-      'Access-Control-Allow-Headers': 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
-    },
-  });
 }

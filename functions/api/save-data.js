@@ -1,9 +1,4 @@
-const corsHeaders = {
-  'Access-Control-Allow-Credentials': 'true',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
-};
+import { corsHeaders, verifyAuth, validateBulkItems, validateItem, validateLogEntry } from './_utils.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -15,17 +10,8 @@ export async function onRequestPost(context) {
     );
   }
 
-  if (!env.SYSTEM_PASSWORD) {
-    return Response.json(
-      { error: 'Server misconfigured: SYSTEM_PASSWORD is not set. Refusing to authenticate with a default password.' },
-      { status: 500, headers: corsHeaders }
-    );
-  }
-
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || authHeader !== `Bearer ${env.SYSTEM_PASSWORD}`) {
-    return Response.json({ error: 'Unauthorized. Incorrect password.' }, { status: 401, headers: corsHeaders });
-  }
+  const auth = await verifyAuth(request, env);
+  if (!auth.ok) return auth.response;
 
   try {
     const {
@@ -37,6 +23,42 @@ export async function onRequestPost(context) {
       palletCapacities,    // full-replace: Restore
       changedPalletCapacity, // day-to-day: single code that changed
     } = await request.json();
+
+    // Validate payloads before touching the database — reject the whole
+    // request on the first bad entry rather than partially applying it.
+    if (inventoryData !== undefined) {
+      if (!Array.isArray(inventoryData)) {
+        return Response.json({ error: 'Invalid inventoryData: must be an array.' }, { status: 400, headers: corsHeaders });
+      }
+      if (inventoryData.length > 20000) {
+        return Response.json({ error: 'Invalid inventoryData: too many items (max 20000).' }, { status: 400, headers: corsHeaders });
+      }
+      for (let i = 0; i < inventoryData.length; i++) {
+        const v = validateItem(inventoryData[i]);
+        if (!v.valid) return Response.json({ error: `Invalid inventoryData[${i}]: ${v.error}` }, { status: 400, headers: corsHeaders });
+      }
+    }
+    if (changedItems !== undefined && changedItems.length > 0) {
+      const v = validateBulkItems(changedItems, 5000);
+      if (!v.valid) return Response.json({ error: `Invalid changedItems: ${v.error}` }, { status: 400, headers: corsHeaders });
+    }
+    if (newHistoryEntries !== undefined) {
+      for (let i = 0; i < newHistoryEntries.length; i++) {
+        const v = validateLogEntry(newHistoryEntries[i]);
+        if (!v.valid) return Response.json({ error: `Invalid newHistoryEntries[${i}]: ${v.error}` }, { status: 400, headers: corsHeaders });
+      }
+    }
+    if (transactionHistory !== undefined) {
+      for (let i = 0; i < transactionHistory.length; i++) {
+        const v = validateLogEntry(transactionHistory[i]);
+        if (!v.valid) return Response.json({ error: `Invalid transactionHistory[${i}]: ${v.error}` }, { status: 400, headers: corsHeaders });
+      }
+    }
+    if (changedPalletCapacity !== undefined) {
+      if (!changedPalletCapacity.code || typeof changedPalletCapacity.code !== 'string') {
+        return Response.json({ error: 'Invalid changedPalletCapacity: code is required.' }, { status: 400, headers: corsHeaders });
+      }
+    }
 
     const statements = [];
 
@@ -135,8 +157,4 @@ export async function onRequestPost(context) {
       { status: 500, headers: corsHeaders }
     );
   }
-}
-
-export async function onRequestOptions() {
-  return new Response(null, { status: 200, headers: corsHeaders });
 }

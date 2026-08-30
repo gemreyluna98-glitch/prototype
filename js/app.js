@@ -227,9 +227,18 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         let isLocked = true;
         let inactivityTimer;
 
-        function getStoredPassword() {
-            const pass = localStorage.getItem('systemPassword');
-            return pass && pass.trim() ? pass : null;
+        function getStoredToken() {
+            const token = localStorage.getItem('sessionToken');
+            return token && token.trim() ? token : null;
+        }
+
+        // If the backend rejects a token (expired/invalid), clear it and force
+        // the lock screen back up so the user re-enters their password rather
+        // than silently failing on every request from then on.
+        function handleSessionExpired() {
+            localStorage.removeItem('sessionToken');
+            isLocked = true;
+            updateLockUI();
         }
 
         function resetInactivityTimer() {
@@ -269,8 +278,9 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                 });
 
                 if (response.ok) {
-                    // Password verified against Cloudflare Pages SYSTEM_PASSWORD
-                    localStorage.setItem('systemPassword', pass); // Store for API calls
+                    const data = await response.json();
+                    // Store the signed session token (not the raw password) for API calls
+                    localStorage.setItem('sessionToken', data.token);
                     isLocked = false;
                     updateLockUI();
                     resetInactivityTimer();
@@ -382,8 +392,8 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             showSaveIndicator(true);
             try {
                 const payload = {};
-                const currentPassword = getStoredPassword();
-                if (!currentPassword) {
+                const currentToken = getStoredToken();
+                if (!currentToken) {
                     document.getElementById('errorMessage').textContent = 'Save Error: Unlock the system before saving.';
                     return;
                 }
@@ -436,14 +446,15 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${currentPassword}`
+                        'Authorization': `Bearer ${currentToken}`
                     },
                     body: JSON.stringify(payload)
                 });
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
                     if (response.status === 401) {
-                         document.getElementById('errorMessage').textContent = "Save Error: Unauthorized database access. Please check your password.";
+                         document.getElementById('errorMessage').textContent = "Save Error: Your session expired. Please unlock again.";
+                         handleSessionExpired();
                     } else {
                          const details = errorData.error || errorData.details || response.statusText;
                          throw new Error(`Failed to save to database. Details: ${details}`);
@@ -460,8 +471,8 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
         }
 
         async function loadDataFromAPI() {
-            const currentPassword = getStoredPassword();
-            if (!currentPassword) {
+            const currentToken = getStoredToken();
+            if (!currentToken) {
                 const overlay = document.getElementById('pageLoadOverlay');
                 if (overlay) overlay.classList.add('is-hidden');
                 return;
@@ -470,14 +481,15 @@ let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder f
             try {
                 const response = await fetch('/api/get-data', {
                     headers: {
-                        'Authorization': `Bearer ${currentPassword}`
+                        'Authorization': `Bearer ${currentToken}`
                     }
                 });
 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
                     if (response.status === 401) {
-                         document.getElementById('errorMessage').textContent = "Load Error: Unauthorized access. The system password does not match the cloud database password.";
+                         document.getElementById('errorMessage').textContent = "Load Error: Your session expired. Please unlock again.";
+                         handleSessionExpired();
                     } else {
                          const details = errorData.error || errorData.details || response.statusText;
                          throw new Error(`Failed to fetch from database. Details: ${details}`);
