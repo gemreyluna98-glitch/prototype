@@ -590,8 +590,8 @@ body.dark-mode tbody tr:hover { background-color: rgba(255, 255, 255, 0.03); }
 .modal-actions button:hover { filter: brightness(0.92); transform: translateY(-1px); box-shadow: var(--shadow-1); }
 #confirmImportButton, #saveBreakdownButton, #confirmWithdrawButton, #restoreButton, #confirmBulkClearButton, #confirmBulkWithdrawButton, #confirmBulkDeliveryButton, #confirmUnlockButton { background-color: var(--green); }
 #confirmImportButton:hover, #saveBreakdownButton:hover, #confirmWithdrawButton:hover, #restoreButton:hover, #confirmBulkClearButton:hover, #confirmBulkWithdrawButton:hover, #confirmBulkDeliveryButton:hover, #confirmUnlockButton:hover { background-color: var(--green-dark); }
-#cancelImportButton, #cancelBreakdownButton, #deleteItemInModalButton, #cancelWithdrawButton, #cancelFileOps, #cancelClearChoice, #cancelBulkClear, #cancelBulkWithdraw, #cancelBulkDelivery, #cancelUnlockButton { background-color: var(--red); }
-#cancelImportButton:hover, #cancelBreakdownButton:hover, #deleteItemInModalButton:hover, #cancelWithdrawButton:hover, #cancelFileOps:hover, #cancelClearChoice:hover, #cancelBulkClear:hover, #cancelBulkWithdraw:hover, #cancelBulkDelivery:hover, #cancelUnlockButton:hover { background-color: var(--red-dark); }
+#cancelImportButton, #cancelBreakdownButton, #cancelWithdrawButton, #cancelFileOps, #cancelClearChoice, #cancelBulkClear, #cancelBulkWithdraw, #cancelBulkDelivery, #cancelUnlockButton { background-color: var(--red); }
+#cancelImportButton:hover, #cancelBreakdownButton:hover, #cancelWithdrawButton:hover, #cancelFileOps:hover, #cancelClearChoice:hover, #cancelBulkClear:hover, #cancelBulkWithdraw:hover, #cancelBulkDelivery:hover, #cancelUnlockButton:hover { background-color: var(--red-dark); }
 #backupButton { background-color: var(--steel); }
 #backupButton:hover { background-color: var(--steel-dark); }
 #exportExcelButton { background-color: var(--grey-mid); }

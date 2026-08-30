@@ -98,7 +98,6 @@ const shortenBreakdownCheckbox = $('shortenBreakdownCheckbox');
 const simplifyBreakdownCheckbox = $('simplifyBreakdownCheckbox');
 const saveBreakdownButton = $('saveBreakdownButton');
 const cancelBreakdownButton = $('cancelBreakdownButton');
-const deleteItemInModalButton = $('deleteItemInModalButton');
 const viewDetailedReportButton = $('viewDetailedReportButton');
 const itemDetailedReportModal = $('itemDetailedReportModal');
 const itemReportCode = $('itemReportCode');
@@ -1142,25 +1141,6 @@ saveBreakdownButton.addEventListener('click', () => {
   editBreakdownModal.style.display = 'none';
 });
 
-deleteItemInModalButton.addEventListener('click', async () => {
-  if (!state.currentEditingRow) return;
-  const codeToDelete = state.currentEditingRow.dataset.code;
-  setButtonLoading(deleteItemInModalButton, true);
-  try {
-    if (await customConfirm(`Are you sure you want to delete ${codeToDelete}?`)) {
-      const index = state.originalRowsOrder.findIndex(row => row === state.currentEditingRow);
-      if (index > -1) state.originalRowsOrder.splice(index, 1);
-      state.rowsByCode.delete(codeToDelete);
-      await applyFiltersAndSort();
-      saveInventoryData(null, [codeToDelete]);
-      logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.');
-      editBreakdownModal.style.display = 'none';
-    }
-  } finally {
-    setButtonLoading(deleteItemInModalButton, false);
-  }
-});
-
 editBreakdownModal.addEventListener('keydown', function (event) {
   if (event.key === 'Enter') {
     event.preventDefault();
@@ -1187,7 +1167,7 @@ exportItemReportButton.addEventListener('click', async () => {
   await loadXLSX();
   const code = itemReportCode.textContent;
   const logs = getItemLogsForCode(code);
-  const dataForExport = [['DATE & TIME', 'TRANSACTION', 'QTY CHANGE', 'BEFORE', 'AFTER', 'DETAILS']];
+  const dataForExport = [['DATE & TIME', 'TRANSACTION', 'QTY CHANGE', 'DETAILS']];
   logs.forEach(l => {
     const formattedDate = new Date(l.timestamp).toLocaleString('en-US', {
       year: 'numeric',
@@ -1198,10 +1178,8 @@ exportItemReportButton.addEventListener('click', async () => {
       second: '2-digit',
       hour12: true,
     });
-    const before = l.meta ? formatStockingQty(l.meta.oldQty || '') : '';
-    const after = l.meta ? formatStockingQty(l.meta.newQty || '') : '';
     const detailsText = l.deltaLabel && l.deltaLabel !== l.details ? `${l.deltaLabel}  (${l.details})` : l.details;
-    dataForExport.push([formattedDate, l.action, typeof l.delta === 'number' ? l.delta : '', before, after, detailsText]);
+    dataForExport.push([formattedDate, l.action, typeof l.delta === 'number' ? l.delta : '', detailsText]);
   });
   if (dataForExport.length <= 1) {
     showToast('No transaction history to export for this item.', 'error');

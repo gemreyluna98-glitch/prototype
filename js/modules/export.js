@@ -283,9 +283,9 @@ export function exportBackupFile() {
   }
   XLSX.utils.book_append_sheet(wb, wsInventory, 'Inventory_Backup');
 
-  const historyData = [['Timestamp', 'Action', 'Code', 'Details']];
+  const historyData = [['Timestamp', 'Action', 'Code', 'Details', 'Meta_JSON']];
   state.transactionHistory.forEach(log => {
-    historyData.push([log.timestamp, log.action, log.code, log.details]);
+    historyData.push([log.timestamp, log.action, log.code, log.details, log.meta ? JSON.stringify(log.meta) : '']);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(historyData), 'Transaction_History');
 
@@ -355,12 +355,22 @@ export function importBackupFile(file) {
       const histSheet = workbook.Sheets['Transaction_History'];
       if (histSheet) {
         const histData = XLSX.utils.sheet_to_json(histSheet);
-        state.transactionHistory = histData.map(h => ({
-          timestamp: h.Timestamp,
-          action: h.Action,
-          code: h.Code,
-          details: h.Details,
-        }));
+        state.transactionHistory = histData.map(h => {
+          const entry = {
+            timestamp: h.Timestamp,
+            action: h.Action,
+            code: h.Code,
+            details: h.Details,
+          };
+          if (h.Meta_JSON) {
+            try {
+              entry.meta = JSON.parse(h.Meta_JSON);
+            } catch (err) {
+              console.error(`Could not parse meta for history entry (${h.Action} / ${h.Code}):`, h.Meta_JSON);
+            }
+          }
+          return entry;
+        });
         renderHistoryLog();
         saveHistoryData();
       }
