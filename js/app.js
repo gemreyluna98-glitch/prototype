@@ -1,3143 +1,1775 @@
 // =============================================================================
-// Cohin Inventory System — main application logic (extracted from index.html)
+// Cohin Inventory System — Application Entry Point
+// Wires up DOM events, defines non-module helpers, initializes on DOMContentLoaded.
 // =============================================================================
 
-        // ==========================================================================
-        // Lazy-loaded XLSX library. The full xlsx.full.min.js is only needed by
-        // Import/Export/Backup/Restore/Variance-Compare — not on initial page load.
-        // loadXLSX() is idempotent: safe to call every time before touching XLSX.*,
-        // it only fetches the script once and caches the in-flight promise.
-        // ==========================================================================
-        let xlsxLoadPromise = null;
-        function loadXLSX() {
-            if (typeof XLSX !== 'undefined') return Promise.resolve();
-            if (xlsxLoadPromise) return xlsxLoadPromise;
-            xlsxLoadPromise = new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = 'https://unpkg.com/xlsx/dist/xlsx.full.min.js';
-                script.onload = () => resolve();
-                script.onerror = () => { xlsxLoadPromise = null; reject(new Error('Failed to load XLSX library.')); };
-                document.head.appendChild(script);
-            });
-            return xlsxLoadPromise;
+// ---------------------------------------------------------------------------
+// Module Imports
+// ---------------------------------------------------------------------------
+import { state } from './modules/state.js';
+import { saveDataToAPI, loadDataFromAPI, saveInventoryData, saveHistoryData } from './modules/api.js';
+import { resetInactivityTimer, lockSystem, showPasswordModal, handleUnlock, updateLockUI, checkAccess, initAuth } from './modules/auth.js';
+import {
+  formatStockingQty,
+  getBreakdownParts,
+  calculateSingleStockingQtyTotal,
+  getColorClassForRemark,
+  escapeHtml,
+  isShortenBreakdownOn,
+  isSimplifyBreakdownOn,
+  simplifyBreakdownForDisplay,
+  formatStockingQtyAndRemarksForDisplay,
+  renderBreakdownCellHtml,
+  refreshAllBreakdownDisplays,
+  renderRow,
+  inferCapacity,
+  generateBreakdownWithCapacity,
+  mergeDeliveriesBreakdown,
+  getWithdrawableStock,
+  performWithdrawal,
+  applyFiltersAndSort,
+  getMovedItems,
+  convertToExcelFormula,
+  applyBuildingRackVisibility,
+} from './modules/inventory.js';
+import {
+  renderHistoryLog,
+  loadMoreHistoryRows,
+  prependHistoryLog,
+  logTransaction,
+  getItemLogsForCode,
+  renderItemDetailedReport,
+} from './modules/history.js';
+import { openEditBreakdownModal, updateEditBreakdownPreview, generateRemarksInputs } from './modules/modals.js';
+import {
+  loadXLSX,
+  exportReportFile,
+  printInventory,
+  exportBackupFile,
+  importBackupFile,
+  compareVariance,
+} from './modules/export.js';
+import {
+  showToast,
+  customAlert,
+  customConfirm,
+  setButtonLoading,
+  showSaveIndicator,
+  updateDarkModeIcon,
+  toggleDarkMode,
+  updateDateTimeAndShift,
+  generateBackupFilename,
+  generateReportFilename,
+} from './modules/ui.js';
+
+// ---------------------------------------------------------------------------
+// DOM Element References (only those needed by app.js event wiring)
+// ---------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+
+const darkModeToggle = $('darkModeToggle');
+const inventoryTableBody = $('inventoryTableBody');
+const clearInventoryButton = $('clearInventoryButton');
+const itemTypeFilter = $('itemTypeFilter');
+const remarksFilter = $('remarksFilter');
+const dataPresenceFilter = $('dataPresenceFilter');
+const materialCodeSort = $('materialCodeSort');
+const searchBar = $('searchBar');
+const openImportModalButton = $('openImportModalButton');
+const historyTableBody = $('historyTableBody');
+const historyLoadMoreButton = $('historyLoadMoreButton');
+const clearHistoryButton = $('clearHistoryButton');
+const fileOpsButton = $('fileOpsButton');
+const importDataModal = $('importDataModal');
+const excelSheetSelect = $('excelSheetSelect');
+const stockingQtyDateSelectModal = $('stockingQtyDateSelectModal');
+const confirmImportButton = $('confirmImportButton');
+const cancelImportButton = $('cancelImportButton');
+const importErrorMessageDiv = $('importErrorMessageDiv');
+const editBreakdownModal = $('editBreakdownModal');
+const editBreakdownInput = $('editBreakdownInput');
+const editBreakdownItemCode = $('editBreakdownItemCode');
+const editBreakdownPreview = $('editBreakdownPreview');
+const stockingQtyFieldGroup = $('stockingQtyFieldGroup');
+const dynamicRemarksContainer = $('dynamicRemarksContainer');
+const showBuildingRackCheckbox = $('showBuildingRackCheckbox');
+const includeBldgRackPrintCheckbox = $('includeBldgRackPrintCheckbox');
+const shortenBreakdownCheckbox = $('shortenBreakdownCheckbox');
+const simplifyBreakdownCheckbox = $('simplifyBreakdownCheckbox');
+const saveBreakdownButton = $('saveBreakdownButton');
+const cancelBreakdownButton = $('cancelBreakdownButton');
+const deleteItemInModalButton = $('deleteItemInModalButton');
+const viewDetailedReportButton = $('viewDetailedReportButton');
+const itemDetailedReportModal = $('itemDetailedReportModal');
+const itemReportCode = $('itemReportCode');
+const exportItemReportButton = $('exportItemReportButton');
+const closeItemReportButton = $('closeItemReportButton');
+const fileOpsModal = $('fileOpsModal');
+const backupButton = $('backupButton');
+const restoreButton = $('restoreButton');
+const exportExcelButton = $('exportExcelButton');
+const cancelFileOps = $('cancelFileOps');
+const currentDateInput = $('currentDate');
+const currentTimeInput = $('currentTime');
+const currentShiftSelect = $('currentShift');
+const userNameInput = $('userName');
+const clearChoiceModal = $('clearChoiceModal');
+const triggerClearAllButton = $('triggerClearAllButton');
+const triggerBulkClearButton = $('triggerBulkClearButton');
+const cancelClearChoice = $('cancelClearChoice');
+const bulkClearQtyModal = $('bulkClearQtyModal');
+const bulkClearFilterSection = $('bulkClearFilterSection');
+const bulkClearList = $('bulkClearList');
+const bulkSelectAllButton = $('bulkSelectAll');
+const bulkDeselectAllButton = $('bulkDeselectAll');
+const confirmBulkClearButton = $('confirmBulkClearButton');
+const cancelBulkClear = $('cancelBulkClear');
+const dataPresenceFilter_bulk = $('dataPresenceFilter_bulk');
+const openBulkWithdrawModalButton = $('openBulkWithdrawModalButton');
+const bulkWithdrawModal = $('bulkWithdrawModal');
+const bulkWithdrawItemSearch = $('bulkWithdrawItemSearch');
+const bulkWithdrawQtyInput = $('bulkWithdrawQtyInput');
+const addToListWithdrawBtn = $('addToListWithdrawBtn');
+const pendingWithdrawalListContainer = $('pendingWithdrawalListContainer');
+const bulkWithdrawErrorMessage = $('bulkWithdrawErrorMessage');
+const confirmBulkWithdrawButton = $('confirmBulkWithdrawButton');
+const cancelBulkWithdraw = $('cancelBulkWithdraw');
+const openBulkDeliveriesModalButton = $('openBulkDeliveriesModalButton');
+const bulkDeliveriesModal = $('bulkDeliveriesModal');
+const toggleMoreFiltersBtn = $('toggleMoreFiltersBtn');
+const secondaryFilters = $('secondaryFilters');
+const enableMovementFilter = $('enableMovementFilter');
+const movementFilterOptions = $('movementFilterOptions');
+const moveDateFrom = $('moveDateFrom');
+const moveTimeFrom = $('moveTimeFrom');
+const moveDateTo = $('moveDateTo');
+const moveTimeTo = $('moveTimeTo');
+const movementMode = $('movementMode');
+const addToListBulkBtn = $('addToListBulkBtn');
+const bulkDeliveryList = $('bulkDeliveryList');
+const confirmBulkDeliveryButton = $('confirmBulkDeliveryButton');
+const cancelBulkDelivery = $('cancelBulkDelivery');
+const bulkDelItemSearch = $('bulkDelItemSearch');
+const bulkDelQtyInput = $('bulkDelQtyInput');
+const bulkDelSharedRemarks = $('bulkDelSharedRemarks');
+const bulkDelSharedDate = $('bulkDelSharedDate');
+const bulkDelPalletCapacity = $('bulkDelPalletCapacity');
+const printInventoryButton = $('printInventoryButton');
+const historyDateFrom = $('historyDateFrom');
+const historyDateTo = $('historyDateTo');
+const resetHistoryFilter = $('resetHistoryFilter');
+const transactionHistoryToggle = $('transactionHistoryToggle');
+const transactionHistoryContent = $('transactionHistoryContent');
+const transactionHistoryIcon = $('transactionHistoryIcon');
+const openVarianceModalButton = $('openVarianceModalButton');
+const varianceModal = $('varianceModal');
+const varianceFileInput = $('varianceFileInput');
+const compareVarianceButton = $('compareVarianceButton');
+const varianceTableBody = $('varianceTableBody');
+const varianceErrorMessage = $('varianceErrorMessage');
+const closeVarianceModalButton = $('closeVarianceModalButton');
+
+const MATERIAL_CODE_HEADER = 'MATERIAL CODE';
+const STOCKING_QTY_ROW_EXCEL_INDEX = 6;
+const DATA_START_ROW_EXCEL_INDEX = 7;
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Helpers NOT in any module
+// ---------------------------------------------------------------------------
+
+// --- Searchable Combobox (replaces native datalist) ---
+function attachSearchableCombobox(input, { getOptions, onSelect, maxResults = 50, emptyText = 'No matches' }) {
+  const wrapper = input.parentElement;
+  if (getComputedStyle(wrapper).position === 'static') wrapper.style.position = 'relative';
+
+  const panel = document.createElement('div');
+  panel.className = 'combobox-panel';
+  panel.style.display = 'none';
+  wrapper.appendChild(panel);
+
+  let currentOptions = [];
+  let highlightedIndex = -1;
+
+  function updateHighlight() {
+    Array.from(panel.children).forEach((el, i) => el.classList.toggle('is-highlighted', i === highlightedIndex));
+    const activeEl = panel.children[highlightedIndex];
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+  }
+
+  function renderPanel(filterText) {
+    const all = getOptions();
+    const q = filterText.trim().toLowerCase();
+    currentOptions = q
+      ? all
+          .map(opt => ({ opt, matchIdx: opt.value.toLowerCase().indexOf(q) }))
+          .filter(x => x.matchIdx !== -1)
+          .sort((a, b) => a.matchIdx - b.matchIdx)
+          .map(x => x.opt)
+          .slice(0, maxResults)
+      : all.slice(0, maxResults);
+    highlightedIndex = currentOptions.length ? 0 : -1;
+    panel.innerHTML =
+      currentOptions.length === 0
+        ? `<div class="combobox-empty">${escapeHtml(emptyText)}</div>`
+        : currentOptions
+            .map(
+              (opt, i) =>
+                `<div class="combobox-option${i === 0 ? ' is-highlighted' : ''}" data-idx="${i}"><span class="combobox-option-value">${escapeHtml(opt.value)}</span>${opt.label ? `<span class="combobox-option-label">${opt.label}</span>` : ''}</div>`
+            )
+            .join('');
+    panel.style.display = 'block';
+  }
+
+  function closePanel() {
+    panel.style.display = 'none';
+    currentOptions = [];
+    highlightedIndex = -1;
+  }
+
+  function selectIndex(i) {
+    const opt = currentOptions[i];
+    if (!opt) return;
+    input.value = opt.value;
+    closePanel();
+    onSelect(opt.value);
+  }
+
+  input.addEventListener('input', () => renderPanel(input.value));
+  input.addEventListener('focus', () => renderPanel(input.value));
+
+  input.addEventListener('keydown', e => {
+    if (panel.style.display === 'none') return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (currentOptions.length) {
+        highlightedIndex = (highlightedIndex + 1) % currentOptions.length;
+        updateHighlight();
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (currentOptions.length) {
+        highlightedIndex = (highlightedIndex - 1 + currentOptions.length) % currentOptions.length;
+        updateHighlight();
+      }
+    } else if (e.key === 'Escape') {
+      closePanel();
+    }
+  });
+
+  panel.addEventListener('mousedown', e => {
+    const optionEl = e.target.closest('.combobox-option');
+    if (!optionEl) return;
+    e.preventDefault();
+    selectIndex(parseInt(optionEl.dataset.idx, 10));
+  });
+
+  document.addEventListener('click', e => {
+    if (!wrapper.contains(e.target)) closePanel();
+  });
+
+  return {
+    selectHighlighted: () => {
+      if (panel.style.display !== 'none' && highlightedIndex > -1) {
+        selectIndex(highlightedIndex);
+        return true;
+      }
+      return false;
+    },
+    isOpen: () => panel.style.display !== 'none',
+    close: closePanel,
+  };
+}
+
+// --- Custom Glass-Styled Dropdowns ---
+function wrapNativeSelect(selectEl) {
+  if (selectEl.dataset.customWrapped) return;
+  selectEl.dataset.customWrapped = 'true';
+  selectEl.classList.add('custom-select-native');
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'custom-select-wrapper';
+  selectEl.parentNode.insertBefore(wrapper, selectEl);
+  wrapper.appendChild(selectEl);
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'custom-select-trigger';
+  trigger.innerHTML = '<span class="custom-select-trigger-label"></span><i class="fas fa-chevron-down custom-select-trigger-icon"></i>';
+  wrapper.appendChild(trigger);
+
+  const panel = document.createElement('div');
+  panel.className = 'custom-select-panel';
+  panel.setAttribute('role', 'listbox');
+  wrapper.appendChild(panel);
+
+  const labelEl = trigger.querySelector('.custom-select-trigger-label');
+
+  function renderLabel() {
+    const opt = selectEl.options[selectEl.selectedIndex];
+    labelEl.textContent = opt ? opt.textContent : '';
+  }
+
+  function renderOptions() {
+    panel.innerHTML = '';
+    Array.from(selectEl.options).forEach((opt, idx) => {
+      const item = document.createElement('div');
+      item.className = 'custom-select-option' + (idx === selectEl.selectedIndex ? ' is-selected' : '');
+      item.textContent = opt.textContent;
+      item.setAttribute('role', 'option');
+      item.addEventListener('click', () => {
+        selectEl.selectedIndex = idx;
+        selectEl.dispatchEvent(new Event('input', { bubbles: true }));
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+        renderLabel();
+        closePanel();
+      });
+      panel.appendChild(item);
+    });
+  }
+
+  function openPanel() {
+    document.querySelectorAll('.custom-select-panel.is-open').forEach(p => {
+      if (p !== panel) p.classList.remove('is-open');
+    });
+    document.querySelectorAll('.custom-select-trigger.is-open').forEach(t => {
+      if (t !== trigger) t.classList.remove('is-open');
+    });
+    renderOptions();
+    panel.classList.add('is-open');
+    trigger.classList.add('is-open');
+  }
+
+  function closePanel() {
+    panel.classList.remove('is-open');
+    trigger.classList.remove('is-open');
+  }
+
+  trigger.addEventListener('click', e => {
+    e.stopPropagation();
+    if (panel.classList.contains('is-open')) closePanel();
+    else openPanel();
+  });
+
+  selectEl.__syncCustomSelect = function () {
+    renderLabel();
+    if (panel.classList.contains('is-open')) renderOptions();
+  };
+
+  const observer = new MutationObserver(() => {
+    renderLabel();
+    if (panel.classList.contains('is-open')) renderOptions();
+  });
+  observer.observe(selectEl, { childList: true });
+
+  renderLabel();
+}
+
+function initCustomSelects() {
+  document.querySelectorAll('select').forEach(wrapNativeSelect);
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.custom-select-panel.is-open').forEach(p => p.classList.remove('is-open'));
+    document.querySelectorAll('.custom-select-trigger.is-open').forEach(t => t.classList.remove('is-open'));
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.custom-select-panel.is-open').forEach(p => p.classList.remove('is-open'));
+      document.querySelectorAll('.custom-select-trigger.is-open').forEach(t => t.classList.remove('is-open'));
+    }
+  });
+}
+
+// --- Bulk Delivery List Rendering ---
+function renderBulkList() {
+  if (!state.pendingBulkDeliveries.length) {
+    bulkDeliveryList.innerHTML = '<p class="bulk-list-empty-text">No items added.</p>';
+    return;
+  }
+  bulkDeliveryList.innerHTML = state.pendingBulkDeliveries
+    .map(
+      (i, idx) => `
+    <div class="bulk-pending-card">
+        <div class="bulk-pending-card-header">
+            <input type="text" value="${escapeHtml(i.code)}" oninput="updatePendingItem(${idx}, 'code', this.value)" placeholder="Material Code">
+            <button class="bulk-pending-card-remove" onclick="removeBulkDeliveryItem(${idx})"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="bulk-pending-card-row">
+            <div class="bulk-pending-card-field">
+                <label>Qty:</label>
+                <input type="text" value="${escapeHtml(i.qty)}" oninput="updatePendingItem(${idx}, 'qty', this.value)">
+            </div>
+            <div class="bulk-pending-card-field" style="flex: 2;">
+                <label>Remarks:</label>
+                <input type="text" value="${escapeHtml(i.remarks)}" oninput="updatePendingItem(${idx}, 'remarks', this.value)">
+            </div>
+        </div>
+    </div>
+`
+    )
+    .join('');
+}
+
+// --- Bulk Withdrawal List Rendering ---
+function renderWithdrawList() {
+  if (!state.pendingBulkWithdrawals.length) {
+    pendingWithdrawalListContainer.innerHTML = '<p class="bulk-list-empty-text">No items added.</p>';
+    return;
+  }
+  pendingWithdrawalListContainer.innerHTML = state.pendingBulkWithdrawals
+    .map((item, idx) => {
+      const totalWithdrawQty = calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
+      return `
+    <div class="bulk-pending-card">
+        <div class="bulk-pending-card-header">
+            <span class="bulk-pending-card-code">${escapeHtml(item.code)}</span>
+            <button class="bulk-pending-card-remove" onclick="removeWithdrawalItem(${idx})"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="bulk-pending-card-row">
+            <div class="bulk-pending-card-field">
+                <label class="withdraw-qty-label">Qty Breakdown:</label>
+                <input type="text" value="${escapeHtml(item.qty)}" onchange="updateWithdrawalItemQty(${idx}, this.value)">
+            </div>
+            <div class="bulk-pending-card-total withdraw-total-label">
+                Total: ${totalWithdrawQty.toLocaleString()}
+            </div>
+        </div>
+    </div>
+`;
+    })
+    .join('');
+}
+
+// --- Bulk Clear Population ---
+function populateBulkClearList(itemsToDisplay = state.originalRowsOrder) {
+  bulkClearList.innerHTML = '';
+  if (itemsToDisplay.length === 0) {
+    bulkClearList.innerHTML = '<p style="text-align:center; color:grey;">No items match the filter.</p>';
+    return;
+  }
+  itemsToDisplay.forEach((row, index) => {
+    const itemCode = row.dataset.code;
+    const totalQty = row.cells[2].textContent;
+    const itemDiv = document.createElement('div');
+    itemDiv.className = 'bulk-clear-item';
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'item-info';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = `bulk-clear-check-${index}`;
+    checkbox.value = itemCode;
+    const label = document.createElement('label');
+    label.htmlFor = `bulk-clear-check-${index}`;
+    label.textContent = itemCode;
+    const qtySpan = document.createElement('span');
+    qtySpan.className = 'item-qty';
+    qtySpan.textContent = `Total: ${totalQty}`;
+    infoDiv.append(checkbox, label);
+    itemDiv.append(infoDiv, qtySpan);
+    bulkClearList.appendChild(itemDiv);
+  });
+}
+
+// --- Bulk Clear Filter ---
+function applyBulkClearFilters() {
+  const itemType = document.getElementById('itemTypeFilter_bulk').value;
+  const remarkType = document.getElementById('remarksFilter_bulk').value;
+  const dataType = dataPresenceFilter_bulk.value;
+  const filteredRows = state.originalRowsOrder.filter(row => {
+    const code = row.dataset.code.toUpperCase();
+    const remarks = JSON.parse(row.dataset.remarks || '[]').map(r => r.toLowerCase().trim());
+    const qtyText = row.cells[1].textContent.trim();
+    const passesItem =
+      itemType === 'ALL' ||
+      (itemType === 'LBL' && code.startsWith('LBL')) ||
+      (itemType === 'CTN' && code.startsWith('CTN')) ||
+      (itemType === 'PLASTIC' && (code.startsWith('BAG') || code.includes('BUNDLE'))) ||
+      (itemType === 'OTHERS' && !/^(LBL|CTN|BAG)|BUNDLE/.test(code));
+    const passesData =
+      dataType === 'ALL' || (dataType === 'WITH_DATA' && qtyText) || (dataType === 'WITHOUT_DATA' && !qtyText);
+    let passesRemark = false;
+    const hasHold = remarks.some(r => r.startsWith('hold'));
+    const hasApproved = remarks.some(r => r.startsWith('approve') || r.startsWith('approved'));
+    const hasOld = remarks.some(r => r.startsWith('first out') || r.startsWith('old'));
+    const hasAnyRemark = remarks.some(r => r !== '');
+    switch (remarkType) {
+      case 'ALL':
+        passesRemark = true;
+        break;
+      case 'HOLD':
+        passesRemark = hasHold;
+        break;
+      case 'APPROVED':
+        passesRemark = hasApproved;
+        break;
+      case 'FIRSTOUT_OLD':
+        passesRemark = hasOld;
+        break;
+      case 'NO_REMARK':
+        passesRemark = !hasAnyRemark;
+        break;
+      case 'OTHER_REMARKS':
+        passesRemark = hasAnyRemark && !hasHold && !hasApproved && !hasOld;
+        break;
+    }
+    return passesItem && passesRemark && passesData;
+  });
+  populateBulkClearList(filteredRows);
+}
+
+// --- File Select (Excel Import) ---
+function handleFileSelect(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      state.loadedWorkbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      excelSheetSelect.innerHTML = '';
+      state.loadedWorkbook.SheetNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        excelSheetSelect.appendChild(opt);
+      });
+      handleSheetChange();
+      importDataModal.style.display = 'block';
+      importErrorMessageDiv.textContent = '';
+    } catch (err) {
+      importErrorMessageDiv.textContent = 'Error reading file.';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// --- Sheet Change ---
+function handleSheetChange() {
+  const sheetName = excelSheetSelect.value;
+  const worksheet = state.loadedWorkbook.Sheets[sheetName];
+  const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+  stockingQtyDateSelectModal.innerHTML = '<option value="">Do not import</option>';
+  if (data.length >= STOCKING_QTY_ROW_EXCEL_INDEX) {
+    const headerRow = data[5] || [];
+    let counter = 1;
+    headerRow.forEach((h, i) => {
+      if (typeof h === 'string' && h.trim().toLowerCase().includes('stocking qty')) {
+        stockingQtyDateSelectModal.innerHTML += `<option value="${i}">Stocking Qty ${counter++}</option>`;
+      }
+    });
+  }
+}
+
+// --- Clickable Preview Parts (for edit breakdown modal) ---
+function buildClickablePreviewParts(rawValue, remarks, locations) {
+  const formattedBreakdown = formatStockingQty(rawValue);
+  const parts = getBreakdownParts(formattedBreakdown);
+  if (!parts.length || (parts.length === 1 && !parts[0])) return [];
+  remarks = remarks || [];
+  locations = locations || [];
+
+  let groups;
+  if (isSimplifyBreakdownOn()) {
+    groups = [];
+    const keyIndexMap = new Map();
+    parts.forEach((part, idx) => {
+      const trimmed = part.trim();
+      const m = trimmed.match(/^([\d.,]+)\s*×\s*([\d.,]+)$/);
+      if (m) {
+        const multiplier = m[1],
+          multiplicand = m[2];
+        if (keyIndexMap.has(multiplicand)) {
+          const g = groups[keyIndexMap.get(multiplicand)];
+          g.multipliers.push(multiplier);
+          g.indices.push(idx);
+        } else {
+          keyIndexMap.set(multiplicand, groups.length);
+          groups.push({ type: 'mult', multiplicand, multipliers: [multiplier], indices: [idx] });
         }
+      } else {
+        groups.push({ type: 'plain', raw: trimmed, indices: [idx] });
+      }
+    });
+  } else {
+    groups = parts.map((part, idx) => ({ type: 'plain', raw: part.trim(), indices: [idx] }));
+  }
 
-        // ==========================================================================
-        // Toast notifications + glass-styled alert/confirm (replaces native
-        // window.alert() / window.confirm(), which render as unstyled OS dialogs
-        // that break the glass theme).
-        // ==========================================================================
-        function showToast(message, type = 'info') {
-            const stack = document.getElementById('toastStack');
-            if (!stack) { window.alert(message); return; }
-            const toast = document.createElement('div');
-            toast.className = 'app-toast app-toast-' + type;
-            const iconClass = type === 'success' ? 'fa-circle-check'
-                : type === 'error' ? 'fa-circle-exclamation'
-                : 'fa-circle-info';
-            toast.innerHTML = '<i class="fas ' + iconClass + '"></i><span></span>';
-            toast.querySelector('span').textContent = message;
-            stack.appendChild(toast);
-            requestAnimationFrame(() => toast.classList.add('is-visible'));
-            setTimeout(() => {
-                toast.classList.remove('is-visible');
-                setTimeout(() => toast.remove(), 250);
-            }, 4000);
+  const shorten = isShortenBreakdownOn();
+  return groups.map(g => {
+    let displayText;
+    if (g.type === 'plain') {
+      displayText = g.raw;
+      if (shorten) {
+        const multMatch = displayText.match(/^([\d.,]+)\s*×/);
+        if (multMatch) displayText = `(${multMatch[1]})`;
+      }
+    } else if (g.multipliers.length > 1) {
+      displayText = shorten ? `(${g.multipliers.join('+')})` : `(${g.multipliers.join(' + ')}) × ${g.multiplicand}`;
+    } else {
+      displayText = shorten ? `(${g.multipliers[0]})` : `${g.multipliers[0]}×${g.multiplicand}`;
+    }
+    const firstIdx = g.indices[0];
+    const remark = remarks[firstIdx] || '';
+    const colorClass = getColorClassForRemark(remark);
+    const loc = (locations[firstIdx] || '').trim();
+    return { text: displayText, colorClass, loc, indices: g.indices };
+  });
+}
+
+// --- LCS-based Breakdown Alignment ---
+function diffBreakdownParts(oldParts, newParts) {
+  const n = oldParts.length,
+    m = newParts.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      dp[i][j] = oldParts[i - 1] === newParts[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  const mapping = new Array(m).fill(-1);
+  let i = n,
+    j = m;
+  while (i > 0 && j > 0) {
+    if (oldParts[i - 1] === newParts[j - 1]) {
+      mapping[j - 1] = i - 1;
+      i--;
+      j--;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+  return mapping;
+}
+
+function diffBreakdownPartsWithFallback(oldParts, newParts, excludedIndices) {
+  const mapping = diffBreakdownParts(oldParts, newParts);
+  const usedOld = new Set(mapping.filter(x => x !== -1));
+  const leftoverOldIdx = [];
+  for (let i = 0; i < oldParts.length; i++) {
+    if (!usedOld.has(i) && !excludedIndices.has(i)) leftoverOldIdx.push(i);
+  }
+  let li = 0;
+  for (let j = 0; j < mapping.length; j++) {
+    if (mapping[j] === -1 && li < leftoverOldIdx.length) {
+      mapping[j] = leftoverOldIdx[li];
+      li++;
+    }
+  }
+  return mapping;
+}
+
+// --- Bulk Delivery Helpers ---
+function autofillBulkDeliveryCapacity(code) {
+  if (!code) return;
+  const row = state.rowsByCode.get(code);
+
+  if (state.palletCapacities[code]) {
+    bulkDelPalletCapacity.value = state.palletCapacities[code];
+  } else {
+    const inferred = row ? inferCapacity(row.dataset.stockingQty) : null;
+    if (inferred) {
+      bulkDelPalletCapacity.value = inferred;
+    } else if (row && row.dataset.remarks) {
+      bulkDelPalletCapacity.value = '';
+      try {
+        const remarksArr = JSON.parse(row.dataset.remarks);
+        if (remarksArr.length > 0) {
+          const firstRemark = remarksArr[0];
+          const match = firstRemark.match(/(\d+)\s*PCS\/PLT/i);
+          if (match && match[1]) {
+            bulkDelPalletCapacity.value = match[1];
+            state.palletCapacities[code] = match[1];
+            saveDataToAPI(['palletCapacities'], {}, null, { changedCode: code });
+          }
         }
+      } catch (err) {
+        console.error('Error parsing remarks for pallet capacity auto-fill', err);
+      }
+    } else {
+      bulkDelPalletCapacity.value = '';
+    }
+  }
+}
 
-        function glassDialog(message, { showCancel }) {
-            return new Promise((resolve) => {
-                const modal = document.getElementById('glassDialogModal');
-                const msgEl = document.getElementById('glassDialogMessage');
-                const okBtn = document.getElementById('glassDialogOk');
-                const cancelBtn = document.getElementById('glassDialogCancel');
-                msgEl.textContent = message;
-                cancelBtn.style.display = showCancel ? '' : 'none';
-                modal.style.display = 'block';
+function handleBulkDelFocusShift() {
+  setTimeout(() => {
+    const capacity = bulkDelPalletCapacity.value;
+    if (capacity && capacity.trim() !== '') {
+      bulkDelQtyInput.focus();
+    } else {
+      bulkDelPalletCapacity.focus();
+    }
+  }, 10);
+}
 
-                function cleanup(result) {
-                    modal.style.display = 'none';
-                    okBtn.onclick = null;
-                    cancelBtn.onclick = null;
-                    resolve(result);
-                }
-                // Using .onclick (not addEventListener) is intentional: this dialog is a
-                // single shared DOM element reused across every alert/confirm call. If two
-                // calls ever overlap (e.g. a button double-clicked before the first dialog
-                // closes), addEventListener would stack a second listener on top of the
-                // first without replacing it — so one OK click would fire both callbacks
-                // and double-run whatever action was being confirmed. Assigning .onclick
-                // always replaces any previous handler, so only the latest call is ever wired up.
-                okBtn.onclick = () => cleanup(true);
-                cancelBtn.onclick = () => cleanup(false);
-            });
+// ---------------------------------------------------------------------------
+// Window globals (referenced by inline HTML onclick/oninput handlers)
+// ---------------------------------------------------------------------------
+window.updatePendingItem = function (idx, key, value) {
+  state.pendingBulkDeliveries[idx][key] = value;
+};
+
+window.removeBulkDeliveryItem = function (idx) {
+  state.pendingBulkDeliveries.splice(idx, 1);
+  renderBulkList();
+};
+
+window.removeWithdrawalItem = function (idx) {
+  state.pendingBulkWithdrawals.splice(idx, 1);
+  renderWithdrawList();
+};
+
+window.updateWithdrawalItemQty = function (idx, newQtyStr) {
+  const item = state.pendingBulkWithdrawals[idx];
+  if (!item) return;
+  const code = item.code;
+  const row = state.rowsByCode.get(code);
+  if (!row) return;
+
+  const maxWithdrawable = getWithdrawableStock(row);
+  const newTotal = calculateSingleStockingQtyTotal(formatStockingQty(newQtyStr));
+
+  if (newTotal > maxWithdrawable) {
+    showToast(`Cannot withdraw ${newTotal.toLocaleString()}. Only ${maxWithdrawable.toLocaleString()} is available for ${code}.`, 'error');
+    renderWithdrawList();
+    return;
+  }
+
+  if (newTotal <= 0) {
+    showToast('Please enter a valid quantity greater than 0.', 'error');
+    renderWithdrawList();
+    return;
+  }
+
+  state.pendingBulkWithdrawals[idx].qty = newQtyStr;
+  renderWithdrawList();
+};
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Auth (delegated to initAuth module, but we also call it)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Dark Mode
+// ---------------------------------------------------------------------------
+darkModeToggle.addEventListener('click', toggleDarkMode);
+if (localStorage.getItem('darkMode') === 'true') {
+  document.body.classList.add('dark-mode');
+  updateDarkModeIcon(true);
+}
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Filters
+// ---------------------------------------------------------------------------
+[itemTypeFilter, remarksFilter, dataPresenceFilter, materialCodeSort, moveDateFrom, moveTimeFrom, moveDateTo, moveTimeTo, movementMode].forEach(el =>
+  el.addEventListener('input', () => applyFiltersAndSort().catch(console.error))
+);
+
+let searchBarDebounceTimer = null;
+searchBar.addEventListener('input', () => {
+  clearTimeout(searchBarDebounceTimer);
+  searchBarDebounceTimer = setTimeout(() => applyFiltersAndSort().catch(console.error), 250);
+});
+
+// Legacy ↔ Modern movement checkbox sync
+const legacyMovement = document.getElementById('enableMovementFilterLegacy');
+const modernMovement = document.getElementById('enableMovementFilter');
+if (legacyMovement && modernMovement) {
+  legacyMovement.addEventListener('change', () => {
+    modernMovement.checked = legacyMovement.checked;
+    modernMovement.dispatchEvent(new Event('change'));
+  });
+  modernMovement.addEventListener('change', () => {
+    legacyMovement.checked = modernMovement.checked;
+  });
+}
+
+toggleMoreFiltersBtn.addEventListener('click', () => {
+  if (secondaryFilters.style.display === 'none') {
+    secondaryFilters.style.display = 'flex';
+    toggleMoreFiltersBtn.innerHTML = '<i class="fas fa-sliders-h"></i> Less';
+  } else {
+    secondaryFilters.style.display = 'none';
+    toggleMoreFiltersBtn.innerHTML = '<i class="fas fa-sliders-h"></i> More';
+  }
+});
+
+enableMovementFilter.addEventListener('change', () => {
+  if (enableMovementFilter.checked) {
+    movementFilterOptions.style.display = 'flex';
+    if (!moveDateFrom.value) {
+      const now = new Date();
+      moveDateFrom.value = now.toISOString().split('T')[0];
+    }
+    if (!moveDateTo.value) {
+      const now = new Date();
+      moveDateTo.value = now.toISOString().split('T')[0];
+    }
+  } else {
+    movementFilterOptions.style.display = 'none';
+  }
+  applyFiltersAndSort().catch(console.error);
+});
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Transaction History Toggle
+// ---------------------------------------------------------------------------
+transactionHistoryToggle.addEventListener('click', () => {
+  if (transactionHistoryContent.style.display === 'none') {
+    transactionHistoryContent.style.display = 'block';
+    transactionHistoryIcon.classList.remove('fa-chevron-down');
+    transactionHistoryIcon.classList.add('fa-chevron-up');
+  } else {
+    transactionHistoryContent.style.display = 'none';
+    transactionHistoryIcon.classList.remove('fa-chevron-up');
+    transactionHistoryIcon.classList.add('fa-chevron-down');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Event Listeners — History Date Filters
+// ---------------------------------------------------------------------------
+[historyDateFrom, historyDateTo].forEach(el => el.addEventListener('change', () => renderHistoryLog(searchBar.value.toLowerCase())));
+resetHistoryFilter.addEventListener('click', () => {
+  historyDateFrom.value = '';
+  historyDateTo.value = '';
+  renderHistoryLog(searchBar.value.toLowerCase());
+});
+historyLoadMoreButton.addEventListener('click', loadMoreHistoryRows);
+
+// ---------------------------------------------------------------------------
+// Event Listeners — File Operations Modal
+// ---------------------------------------------------------------------------
+fileOpsButton.addEventListener('click', () => {
+  checkAccess(() => {
+    fileOpsModal.style.display = 'block';
+  });
+});
+cancelFileOps.addEventListener('click', () => {
+  fileOpsModal.style.display = 'none';
+});
+
+openImportModalButton.addEventListener('click', () => {
+  checkAccess(async () => {
+    await loadXLSX();
+    fileOpsModal.style.display = 'none';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.xlsx, .xls';
+    fileInput.onchange = e => handleFileSelect(e.target.files[0]);
+    fileInput.click();
+  });
+});
+
+clearInventoryButton.addEventListener('click', () => {
+  checkAccess(() => {
+    fileOpsModal.style.display = 'none';
+    clearChoiceModal.style.display = 'block';
+  });
+});
+
+clearHistoryButton.addEventListener('click', () => {
+  checkAccess(async () => {
+    setButtonLoading(clearHistoryButton, true);
+    try {
+      if (await customConfirm('Are you sure?')) {
+        state.transactionHistory = [];
+        state.historyFilteredCache = [];
+        state.historyRenderedCount = 0;
+        historyTableBody.innerHTML = '';
+        saveHistoryData();
+        logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.');
+      }
+    } finally {
+      setButtonLoading(clearHistoryButton, false);
+    }
+  });
+});
+
+backupButton.addEventListener('click', async () => {
+  await loadXLSX();
+  exportBackupFile();
+  fileOpsModal.style.display = 'none';
+});
+restoreButton.addEventListener('click', async () => {
+  await loadXLSX();
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.xlsx, .xls';
+  fileInput.onchange = e => importBackupFile(e.target.files[0]);
+  fileInput.click();
+  fileOpsModal.style.display = 'none';
+});
+exportExcelButton.addEventListener('click', async () => {
+  await loadXLSX();
+  exportReportFile();
+  fileOpsModal.style.display = 'none';
+});
+printInventoryButton.addEventListener('click', () => {
+  printInventory();
+  fileOpsModal.style.display = 'none';
+});
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Clear Choice / Bulk Clear
+// ---------------------------------------------------------------------------
+cancelClearChoice.addEventListener('click', () => {
+  clearChoiceModal.style.display = 'none';
+});
+
+triggerClearAllButton.addEventListener('click', async () => {
+  setButtonLoading(triggerClearAllButton, true);
+  try {
+    if (await customConfirm('This will delete all items in the inventory. Are you sure?')) {
+      inventoryTableBody.innerHTML = '';
+      state.originalRowsOrder = [];
+      state.rowsByCode = new Map();
+      await applyFiltersAndSort();
+      saveInventoryData();
+      logTransaction('CLEAR ALL', '-', 'All inventory data cleared.');
+    }
+    clearChoiceModal.style.display = 'none';
+  } finally {
+    setButtonLoading(triggerClearAllButton, false);
+  }
+});
+
+triggerBulkClearButton.addEventListener('click', () => {
+  bulkClearFilterSection.querySelectorAll('select').forEach(sel => {
+    sel.value = 'ALL';
+    if (sel.__syncCustomSelect) sel.__syncCustomSelect();
+  });
+  populateBulkClearList();
+  clearChoiceModal.style.display = 'none';
+  bulkClearQtyModal.style.display = 'block';
+});
+
+bulkClearFilterSection.querySelectorAll('select').forEach(el => el.addEventListener('input', applyBulkClearFilters));
+
+bulkSelectAllButton.addEventListener('click', () => {
+  bulkClearList.querySelectorAll('input[type="checkbox"]').forEach(cb => (cb.checked = true));
+});
+bulkDeselectAllButton.addEventListener('click', () => {
+  bulkClearList.querySelectorAll('input[type="checkbox"]').forEach(cb => (cb.checked = false));
+});
+cancelBulkClear.addEventListener('click', () => {
+  bulkClearQtyModal.style.display = 'none';
+});
+
+confirmBulkClearButton.addEventListener('click', async () => {
+  const selectedCheckboxes = Array.from(bulkClearList.querySelectorAll('input[type="checkbox"]:checked'));
+  if (selectedCheckboxes.length === 0) {
+    showToast('Please select at least one item to clear.', 'error');
+    return;
+  }
+  setButtonLoading(confirmBulkClearButton, true);
+  try {
+    const codesToClear = selectedCheckboxes.map(cb => cb.value);
+    if (await customConfirm(`Are you sure you want to clear the quantity for ${codesToClear.length} selected item(s)?`)) {
+      codesToClear.forEach(code => {
+        const targetRow = state.rowsByCode.get(code);
+        if (targetRow) {
+          targetRow.dataset.stockingQty = '';
+          targetRow.dataset.remarks = '[]';
+          targetRow.dataset.locations = '[]';
+          targetRow.cells[1].innerHTML = '';
+          targetRow.cells[2].textContent = '0';
+          targetRow.cells[3].textContent = '';
         }
+      });
+      saveInventoryData(codesToClear);
+      logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : ''));
+      await applyFiltersAndSort();
+      applyBuildingRackVisibility();
+      showToast(`Successfully cleared quantities for ${codesToClear.length} item(s).`, 'success');
+      bulkClearQtyModal.style.display = 'none';
+    }
+  } finally {
+    setButtonLoading(confirmBulkClearButton, false);
+  }
+});
 
-        function customAlert(message) {
-            return glassDialog(message, { showCancel: false });
+// ---------------------------------------------------------------------------
+// Event Listeners — Import Modal
+// ---------------------------------------------------------------------------
+confirmImportButton.addEventListener('click', async () => {
+  if (!(await customConfirm('Importing new data will overwrite the current inventory. Do you want to continue?'))) return;
+  setButtonLoading(confirmImportButton, true);
+  try {
+    const sheetName = excelSheetSelect.value;
+    const worksheet = state.loadedWorkbook.Sheets[sheetName];
+    const qtyColIndex = stockingQtyDateSelectModal.value;
+    const dataForHeaders = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+    const codeHeaderRow = dataForHeaders[4] || [];
+    const codeColIndex = codeHeaderRow.findIndex(h => typeof h === 'string' && h.trim().toUpperCase() === 'MATERIAL CODE');
+    if (codeColIndex === -1) {
+      importErrorMessageDiv.textContent = '"MATERIAL CODE" column not found on Row 5.';
+      return;
+    }
+    inventoryTableBody.innerHTML = '';
+    state.originalRowsOrder = [];
+    state.rowsByCode = new Map();
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    let importedCount = 0;
+    for (let R = DATA_START_ROW_EXCEL_INDEX - 1; R <= range.e.r; ++R) {
+      const codeCell = worksheet[XLSX.utils.encode_cell({ c: codeColIndex, r: R })];
+      if (codeCell && codeCell.v) {
+        importedCount++;
+        const code = codeCell.w || codeCell.v.toString();
+        let stockingQty = '';
+        if (qtyColIndex) {
+          const qtyCell = worksheet[XLSX.utils.encode_cell({ c: parseInt(qtyColIndex), r: R })];
+          if (qtyCell) stockingQty = qtyCell.f || qtyCell.w || String(qtyCell.v) || '';
         }
+        renderRow(
+          {
+            code: code.trim(),
+            stockingQty: stockingQty.toString(),
+            remarks: Array(getBreakdownParts(formatStockingQty(stockingQty)).length).fill(''),
+          },
+          false
+        );
+      }
+    }
+    await applyFiltersAndSort();
+    const importLog = logTransaction('IMPORT', '-', `Imported ${importedCount} items from sheet: ${sheetName}.`, null, true);
+    prependHistoryLog(importLog);
+    saveDataToAPI(['inventoryData', 'transactionHistory'], {}, [importLog]);
+    importDataModal.style.display = 'none';
+  } finally {
+    setButtonLoading(confirmImportButton, false);
+  }
+});
 
-        function customConfirm(message) {
-            return glassDialog(message, { showCancel: true });
+cancelImportButton.addEventListener('click', () => {
+  importDataModal.style.display = 'none';
+});
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Inventory Table Click (Editable Breakdown)
+// ---------------------------------------------------------------------------
+inventoryTableBody.addEventListener('click', event => {
+  const targetCell = event.target.closest('.editable-breakdown');
+  if (targetCell) {
+    const code = targetCell.closest('tr')?.dataset.code;
+    checkAccess(() => {
+      const row = state.rowsByCode.get(code);
+      if (!row) return;
+      openEditBreakdownModal(row);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Edit Breakdown Modal
+// ---------------------------------------------------------------------------
+let editBreakdownDebounceTimer = null;
+editBreakdownInput.addEventListener('input', function () {
+  clearTimeout(editBreakdownDebounceTimer);
+  const val = this.value;
+  editBreakdownDebounceTimer = setTimeout(() => {
+    const newParts = getBreakdownParts(formatStockingQty(val));
+    const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
+    const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
+    const mapping = diffBreakdownPartsWithFallback(state.lastEditBreakdownParts, newParts, state.markedForDeletionIndices);
+    const alignedRemarks = mapping.map(oldIdx => (oldIdx === -1 ? '' : currentRemarks[oldIdx] || ''));
+    const alignedLocations = mapping.map(oldIdx => (oldIdx === -1 ? '' : currentLocations[oldIdx] || ''));
+    state.lastEditBreakdownParts = newParts;
+    state.markedForDeletionIndices = new Set();
+    generateRemarksInputs(newParts.length, alignedRemarks, alignedLocations);
+    updateEditBreakdownPreview();
+  }, 200);
+});
+
+dynamicRemarksContainer.addEventListener('input', function (event) {
+  if (event.target.classList.contains('remark-part-input') || event.target.classList.contains('location-part-input')) {
+    updateEditBreakdownPreview();
+  }
+});
+
+editBreakdownPreview.addEventListener('click', function (event) {
+  const target = event.target.closest('.preview-part');
+  if (!target) return;
+  const index = parseInt(target.dataset.index, 10);
+  if (isNaN(index)) return;
+
+  document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight'));
+
+  const remarkInputs = dynamicRemarksContainer.querySelectorAll('.remark-part-input');
+  const locationInputs = dynamicRemarksContainer.querySelectorAll('.location-part-input');
+
+  const remarkGroup = remarkInputs[index] ? remarkInputs[index].closest('.item-input') : null;
+  const locationGroup = locationInputs[index] ? locationInputs[index].closest('.item-input') : null;
+  if (remarkGroup) remarkGroup.classList.add('field-flash-highlight');
+  if (locationGroup) locationGroup.classList.add('field-flash-highlight');
+
+  if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.add('stocking-qty-floating');
+
+  if (remarkGroup) {
+    remarkGroup.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  setTimeout(() => {
+    document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight'));
+  }, 2200);
+});
+
+saveBreakdownButton.addEventListener('click', () => {
+  if (!state.currentEditingRow) return;
+  const oldStockingQty = state.currentEditingRow.dataset.stockingQty;
+  const oldRemarks = JSON.parse(state.currentEditingRow.dataset.remarks || '[]');
+  const oldLocations = JSON.parse(state.currentEditingRow.dataset.locations || '[]');
+  const newStockingQty = editBreakdownInput.value;
+  const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim());
+  const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim());
+  state.currentEditingRow.dataset.stockingQty = newStockingQty;
+  state.currentEditingRow.dataset.remarks = JSON.stringify(newRemarks);
+  state.currentEditingRow.dataset.locations = JSON.stringify(newLocations);
+  const formattedBreakdown = formatStockingQty(newStockingQty);
+  const total = calculateSingleStockingQtyTotal(formattedBreakdown);
+  state.currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations);
+  state.currentEditingRow.cells[2].textContent = total.toLocaleString();
+  state.currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | ');
+  saveInventoryData([state.currentEditingRow.dataset.code]);
+  logTransaction('EDIT ITEM', state.currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, {
+    oldQty: oldStockingQty,
+    oldRemarks,
+    oldLocations,
+    newQty: newStockingQty,
+    newRemarks,
+    newLocations,
+  });
+  showToast('Item updated.', 'success');
+  editBreakdownModal.style.display = 'none';
+});
+
+deleteItemInModalButton.addEventListener('click', async () => {
+  if (!state.currentEditingRow) return;
+  const codeToDelete = state.currentEditingRow.dataset.code;
+  setButtonLoading(deleteItemInModalButton, true);
+  try {
+    if (await customConfirm(`Are you sure you want to delete ${codeToDelete}?`)) {
+      const index = state.originalRowsOrder.findIndex(row => row === state.currentEditingRow);
+      if (index > -1) state.originalRowsOrder.splice(index, 1);
+      state.rowsByCode.delete(codeToDelete);
+      await applyFiltersAndSort();
+      saveInventoryData(null, [codeToDelete]);
+      logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.');
+      editBreakdownModal.style.display = 'none';
+    }
+  } finally {
+    setButtonLoading(deleteItemInModalButton, false);
+  }
+});
+
+editBreakdownModal.addEventListener('keydown', function (event) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    saveBreakdownButton.click();
+  }
+});
+
+cancelBreakdownButton.addEventListener('click', () => {
+  editBreakdownModal.style.display = 'none';
+});
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Detailed Item Report
+// ---------------------------------------------------------------------------
+viewDetailedReportButton.addEventListener('click', () => {
+  if (!state.currentEditingRow) return;
+  renderItemDetailedReport(state.currentEditingRow.dataset.code);
+  itemDetailedReportModal.style.display = 'block';
+});
+closeItemReportButton.addEventListener('click', () => {
+  itemDetailedReportModal.style.display = 'none';
+});
+exportItemReportButton.addEventListener('click', async () => {
+  await loadXLSX();
+  const code = itemReportCode.textContent;
+  const logs = getItemLogsForCode(code);
+  const dataForExport = [['DATE & TIME', 'TRANSACTION', 'QTY CHANGE', 'BEFORE', 'AFTER', 'DETAILS']];
+  logs.forEach(l => {
+    const formattedDate = new Date(l.timestamp).toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+    const before = l.meta ? formatStockingQty(l.meta.oldQty || '') : '';
+    const after = l.meta ? formatStockingQty(l.meta.newQty || '') : '';
+    const detailsText = l.deltaLabel && l.deltaLabel !== l.details ? `${l.deltaLabel}  (${l.details})` : l.details;
+    dataForExport.push([formattedDate, l.action, typeof l.delta === 'number' ? l.delta : '', before, after, detailsText]);
+  });
+  if (dataForExport.length <= 1) {
+    showToast('No transaction history to export for this item.', 'error');
+    return;
+  }
+  const ws = XLSX.utils.aoa_to_sheet(dataForExport);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Item Report');
+  XLSX.writeFile(wb, `item_report_${code}_${Date.now()}.xlsx`);
+  logTransaction('EXPORT ITEM REPORT', code, 'Detailed item transaction report exported.');
+});
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Bulk Delivery
+// ---------------------------------------------------------------------------
+let bulkDeliveryComboboxOptions = [];
+openBulkDeliveriesModalButton.addEventListener('click', () => {
+  checkAccess(() => {
+    const sortedRows = [...state.originalRowsOrder].sort((a, b) => {
+      const stockA = calculateSingleStockingQtyTotal(formatStockingQty(a.dataset.stockingQty));
+      const stockB = calculateSingleStockingQtyTotal(formatStockingQty(b.dataset.stockingQty));
+      if (stockA > 0 && stockB <= 0) return -1;
+      if (stockA <= 0 && stockB > 0) return 1;
+      return (a.dataset.code || '').localeCompare(b.dataset.code || '');
+    });
+    bulkDeliveryComboboxOptions = sortedRows.map(row => {
+      const code = row.dataset.code;
+      const totalStock = calculateSingleStockingQtyTotal(formatStockingQty(row.dataset.stockingQty));
+      const hasStock = totalStock > 0;
+      return { value: code, label: hasStock ? `\u{1F7E2} (${totalStock.toLocaleString()})` : '\u{1F534} (Empty)' };
+    });
+
+    state.pendingBulkDeliveries = [];
+    bulkDelItemSearch.value = '';
+    bulkDelPalletCapacity.value = '';
+    bulkDelQtyInput.value = '';
+    bulkDelSharedRemarks.value = '';
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    bulkDelSharedDate.value = `${year}-${month}-${day}`;
+    renderBulkList();
+
+    bulkDeliveriesModal.style.display = 'block';
+    setTimeout(() => bulkDelSharedRemarks.focus(), 100);
+  });
+});
+
+const bulkDeliveryInputs = [bulkDelSharedRemarks, bulkDelSharedDate, bulkDelItemSearch, bulkDelPalletCapacity, bulkDelQtyInput];
+
+bulkDeliveryInputs.forEach((input, index) => {
+  input.addEventListener('keydown', e => {
+    if ((input === bulkDelItemSearch || input === bulkDelSharedRemarks) && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextInput = bulkDeliveryInputs[index + 1];
+      if (nextInput) nextInput.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevInput = bulkDeliveryInputs[index - 1];
+      if (prevInput) prevInput.focus();
+    }
+  });
+});
+
+bulkDelSharedRemarks.addEventListener('input', e => {
+  if (e.inputType === 'insertReplacementText') {
+    setTimeout(() => bulkDelSharedDate.focus(), 10);
+  }
+});
+
+bulkDelSharedRemarks.addEventListener('change', () => {
+  const typedValue = bulkDelSharedRemarks.value.trim().toLowerCase();
+  const options = Array.from(document.getElementById('sharedRemarksDatalist').options);
+  const exactMatch = options.some(opt => opt.value.toLowerCase() === typedValue);
+  if (exactMatch) {
+    setTimeout(() => bulkDelSharedDate.focus(), 10);
+  }
+});
+
+bulkDelSharedRemarks.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    if (e.key === 'Tab') e.preventDefault();
+    setTimeout(() => {
+      if (document.activeElement === bulkDelSharedDate) return;
+      const typedValue = bulkDelSharedRemarks.value.trim().toLowerCase();
+      if (typedValue) {
+        let exactMatch = false;
+        let firstMatch = null;
+        const options = Array.from(document.getElementById('sharedRemarksDatalist').options);
+        for (const option of options) {
+          const optionValue = option.value.toLowerCase();
+          if (optionValue === typedValue) {
+            exactMatch = true;
+            break;
+          }
+          if (!firstMatch && optionValue.includes(typedValue)) {
+            firstMatch = option.value;
+          }
         }
-
-        // Reusable loading-state helper for buttons: swaps the label for a spinner
-        // and disables the button, so any async action (confirm dialogs, saves,
-        // fetches) gives clear "still working" feedback instead of feeling frozen.
-        function setButtonLoading(btn, isLoading) {
-            if (!btn) return;
-            if (isLoading) {
-                if (!btn.querySelector('.btn-label')) {
-                    btn.innerHTML = `<span class="btn-label">${btn.innerHTML}</span><i class="fas fa-spinner fa-spin btn-spinner"></i>`;
-                } else if (!btn.querySelector('.btn-spinner')) {
-                    btn.insertAdjacentHTML('beforeend', '<i class="fas fa-spinner fa-spin btn-spinner"></i>');
-                }
-                btn.classList.add('is-loading');
-                btn.disabled = true;
-            } else {
-                btn.classList.remove('is-loading');
-                btn.disabled = false;
-            }
+        if (exactMatch) {
+          bulkDelSharedDate.focus();
+          return;
         }
-
-        const lockSystemButton = document.getElementById('lockSystemButton'),
-        darkModeToggle = document.getElementById("darkModeToggle"),
-        inventoryTableBody = document.getElementById('inventoryTableBody'),
-        clearInventoryButton = document.getElementById('clearInventoryButton'),
-        itemTypeFilter = document.getElementById('itemTypeFilter'),
-        remarksFilter = document.getElementById('remarksFilter'),
-        dataPresenceFilter = document.getElementById('dataPresenceFilter'),
-        materialCodeSort = document.getElementById('materialCodeSort'),
-        searchBar = document.getElementById('searchBar'),
-        openImportModalButton = document.getElementById('openImportModalButton'),
-        historyTableBody = document.getElementById('historyTableBody'),
-        historyLoadMoreWrap = document.getElementById('historyLoadMoreWrap'),
-        historyLoadMoreButton = document.getElementById('historyLoadMoreButton'),
-        historyShownCount = document.getElementById('historyShownCount'),
-        clearHistoryButton = document.getElementById('clearHistoryButton'),
-        fileOpsButton = document.getElementById('fileOpsButton'),
-        importDataModal = document.getElementById('importDataModal'),
-        excelSheetSelect = document.getElementById('excelSheetSelect'),
-        stockingQtyDateSelectModal = document.getElementById('stockingQtyDateSelectModal'),
-        confirmImportButton = document.getElementById('confirmImportButton'),
-        cancelImportButton = document.getElementById('cancelImportButton'),
-        importErrorMessageDiv = document.getElementById('importErrorMessageDiv'),
-        editBreakdownModal = document.getElementById('editBreakdownModal'),
-        editBreakdownInput = document.getElementById('editBreakdownInput'),
-        editBreakdownItemCode = document.getElementById('editBreakdownItemCode'),
-        editBreakdownPreview = document.getElementById('editBreakdownPreview'),
-        stockingQtyFieldGroup = document.getElementById('stockingQtyFieldGroup'),
-        dynamicRemarksContainer = document.getElementById('dynamicRemarksContainer'),
-        showBuildingRackCheckbox = document.getElementById('showBuildingRackCheckbox'),
-        includeBldgRackPrintCheckbox = document.getElementById('includeBldgRackPrintCheckbox'),
-        shortenBreakdownCheckbox = document.getElementById('shortenBreakdownCheckbox'),
-        simplifyBreakdownCheckbox = document.getElementById('simplifyBreakdownCheckbox'),
-        saveBreakdownButton = document.getElementById('saveBreakdownButton'),
-        cancelBreakdownButton = document.getElementById('cancelBreakdownButton'),
-        deleteItemInModalButton = document.getElementById('deleteItemInModalButton'),
-        viewDetailedReportButton = document.getElementById('viewDetailedReportButton'),
-        itemDetailedReportModal = document.getElementById('itemDetailedReportModal'),
-        itemReportCode = document.getElementById('itemReportCode'),
-        itemReportSummary = document.getElementById('itemReportSummary'),
-        itemReportCurrentBreakdown = document.getElementById('itemReportCurrentBreakdown'),
-        itemReportTableBody = document.getElementById('itemReportTableBody'),
-        itemReportEmptyState = document.getElementById('itemReportEmptyState'),
-        exportItemReportButton = document.getElementById('exportItemReportButton'),
-        closeItemReportButton = document.getElementById('closeItemReportButton'),
-        fileOpsModal = document.getElementById('fileOpsModal'),
-        backupButton = document.getElementById('backupButton'),
-        restoreButton = document.getElementById('restoreButton'),
-        exportExcelButton = document.getElementById('exportExcelButton'),
-        cancelFileOps = document.getElementById('cancelFileOps'),
-        currentDateInput = document.getElementById('currentDate'),
-        currentTimeInput = document.getElementById('currentTime'),
-        currentShiftSelect = document.getElementById('currentShift'),
-        userNameInput = document.getElementById('userName'),
-        clearChoiceModal = document.getElementById('clearChoiceModal'),
-        triggerClearAllButton = document.getElementById('triggerClearAllButton'),
-        triggerBulkClearButton = document.getElementById('triggerBulkClearButton'),
-        cancelClearChoice = document.getElementById('cancelClearChoice'),
-        bulkClearQtyModal = document.getElementById('bulkClearQtyModal'),
-        bulkClearFilterSection = document.getElementById('bulkClearFilterSection'),
-        bulkClearList = document.getElementById('bulkClearList'),
-        bulkSelectAllButton = document.getElementById('bulkSelectAll'),
-        bulkDeselectAllButton = document.getElementById('bulkDeselectAll'),
-        confirmBulkClearButton = document.getElementById('confirmBulkClearButton'),
-        cancelBulkClear = document.getElementById('cancelBulkClear'),
-        bulkClearErrorMessage = document.getElementById('bulkClearErrorMessage'),
-        dataPresenceFilter_bulk = document.getElementById('dataPresenceFilter_bulk'),
-
-        openBulkWithdrawModalButton = document.getElementById('openBulkWithdrawModalButton'),
-        bulkWithdrawModal = document.getElementById('bulkWithdrawModal'),
-        bulkWithdrawItemSearch = document.getElementById('bulkWithdrawItemSearch'),
-        itemListWithdrawDatalist = document.getElementById('itemListWithdraw'),
-        bulkWithdrawQtyInput = document.getElementById('bulkWithdrawQtyInput'),
-        addToListWithdrawBtn = document.getElementById('addToListWithdrawBtn'),
-        pendingWithdrawalListContainer = document.getElementById('pendingWithdrawalListContainer'),
-        bulkWithdrawErrorMessage = document.getElementById('bulkWithdrawErrorMessage'),
-        confirmBulkWithdrawButton = document.getElementById('confirmBulkWithdrawButton'),
-        cancelBulkWithdraw = document.getElementById('cancelBulkWithdraw'),
-
-        openBulkDeliveriesModalButton = document.getElementById('openBulkDeliveriesModalButton'),
-        bulkDeliveriesModal = document.getElementById('bulkDeliveriesModal'),
-        toggleMoreFiltersBtn = document.getElementById('toggleMoreFiltersBtn'),
-        secondaryFilters = document.getElementById('secondaryFilters'),
-        enableMovementFilter = document.getElementById('enableMovementFilter'),
-        movementFilterOptions = document.getElementById('movementFilterOptions'),
-        moveDateFrom = document.getElementById('moveDateFrom'),
-        moveTimeFrom = document.getElementById('moveTimeFrom'),
-        moveDateTo = document.getElementById('moveDateTo'),
-        moveTimeTo = document.getElementById('moveTimeTo'),
-        movementMode = document.getElementById('movementMode'),
-        itemListBulkDatalist = document.getElementById('itemListBulk'),
-        addToListBulkBtn = document.getElementById('addToListBulkBtn'),
-        bulkDeliveryList = document.getElementById('bulkDeliveryList'),
-        confirmBulkDeliveryButton = document.getElementById('confirmBulkDeliveryButton'),
-        cancelBulkDelivery = document.getElementById('cancelBulkDelivery'),
-        bulkDelItemSearch = document.getElementById('bulkDelItemSearch'),
-        bulkDelQtyInput = document.getElementById('bulkDelQtyInput'),
-        bulkDelSharedRemarks = document.getElementById('bulkDelSharedRemarks'),
-        bulkDelSharedDate = document.getElementById('bulkDelSharedDate'),
-        printInventoryButton = document.getElementById('printInventoryButton'),
-        historyDateFrom = document.getElementById('historyDateFrom'),
-        historyDateTo = document.getElementById('historyDateTo'),
-        resetHistoryFilter = document.getElementById('resetHistoryFilter'),
-        passwordModal = document.getElementById('passwordModal'),
-        systemPasswordInput = document.getElementById('systemPasswordInput'),
-        passwordErrorMessage = document.getElementById('passwordErrorMessage'),
-        confirmUnlockButton = document.getElementById('confirmUnlockButton'),
-        cancelUnlockButton = document.getElementById('cancelUnlockButton'),
-        openVarianceModalButton = document.getElementById('openVarianceModalButton'),
-        varianceModal = document.getElementById('varianceModal'),
-        varianceFileInput = document.getElementById('varianceFileInput'),
-        compareVarianceButton = document.getElementById('compareVarianceButton'),
-        varianceTableBody = document.getElementById('varianceTableBody'),
-        varianceErrorMessage = document.getElementById('varianceErrorMessage'),
-        closeVarianceModalButton = document.getElementById('closeVarianceModalButton'),
-        transactionHistoryToggle = document.getElementById('transactionHistoryToggle'),
-        transactionHistoryContent = document.getElementById('transactionHistoryContent'),
-        transactionHistoryIcon = document.getElementById('transactionHistoryIcon');
-let loadedWorkbook = null, originalRowsOrder = [], transactionHistory = [], currentEditingRow = null, pendingAction = null;
-let lastEditBreakdownParts = []; // snapshot of breakdown parts as currently shown in the edit modal, used to correctly re-align remarks/bldg-rack tags when a part is added/removed mid-list
-let markedForDeletionIndices = new Set(); // indices into lastEditBreakdownParts the user explicitly flagged as "this one is being removed" via the 🗑 button, so the fallback pairing below never mistakes it for a changed value
-let rowsByCode = new Map(); // code -> <tr> element, mirrors originalRowsOrder for O(1) code lookups
-        let bulkWithdrawQuantities = {};
-        let palletCapacities = {};
-
-        let isLocked = true;
-        let inactivityTimer;
-
-        function getStoredToken() {
-            const token = localStorage.getItem('sessionToken');
-            return token && token.trim() ? token : null;
+        if (!exactMatch && firstMatch) {
+          bulkDelSharedRemarks.value = firstMatch;
+          bulkDelSharedDate.focus();
         }
-
-        // If the backend rejects a token (expired/invalid), clear it and force
-        // the lock screen back up so the user re-enters their password rather
-        // than silently failing on every request from then on.
-        function handleSessionExpired() {
-            localStorage.removeItem('sessionToken');
-            isLocked = true;
-            updateLockUI();
-        }
-
-        function resetInactivityTimer() {
-            clearTimeout(inactivityTimer);
-            if (!isLocked) {
-                inactivityTimer = setTimeout(lockSystem, 10 * 60 * 1000); // 10 minutes
-            }
-        }
-
-        function lockSystem() {
-            isLocked = true;
-            updateLockUI();
-            // Close any open modals if locking
-            document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
-        }
-
-        function showPasswordModal(callback) {
-            pendingAction = callback;
-            passwordModal.style.display = 'block';
-            systemPasswordInput.value = '';
-            passwordErrorMessage.textContent = '';
-            systemPasswordInput.focus();
-        }
-
-        let pendingBulkWithdrawals = [];
-
-        async function handleUnlock() {
-            const pass = systemPasswordInput.value;
-            passwordErrorMessage.textContent = "Verifying password...";
-            passwordErrorMessage.style.color = "blue";
-
-            try {
-                const response = await fetch('/api/verify-password', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password: pass })
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    // Store the signed session token (not the raw password) for API calls
-                    localStorage.setItem('sessionToken', data.token);
-                    isLocked = false;
-                    updateLockUI();
-                    resetInactivityTimer();
-                    passwordModal.style.display = 'none';
-                    await loadDataFromAPI(); // the initial page-load fetch may have failed (401) if this password wasn't known yet — refresh now that it's verified
-                    if (pendingAction) {
-                        const action = pendingAction;
-                        pendingAction = null;
-                        action();
-                    }
-                } else {
-                    passwordErrorMessage.style.color = "red";
-                    passwordErrorMessage.textContent = "Incorrect Password!";
-                    systemPasswordInput.value = '';
-                    systemPasswordInput.focus();
-                }
-            } catch (error) {
-                console.error("Verification error", error);
-                passwordErrorMessage.style.color = "red";
-                passwordErrorMessage.textContent = "Error verifying password. Please check connection.";
-            }
-        }
-
-        confirmUnlockButton.addEventListener('click', handleUnlock);
-        systemPasswordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleUnlock(); });
-        cancelUnlockButton.addEventListener('click', () => {
-            passwordModal.style.display = 'none';
-            pendingAction = null;
-        });
-
-        function updateLockUI() {
-            const icon = lockSystemButton.querySelector('i');
-            if (isLocked) {
-                if (icon) icon.className = 'fas fa-lock';
-                lockSystemButton.style.backgroundColor = '#dc3545';
-                lockSystemButton.title = 'System Locked (Click to Unlock)';
-            } else {
-                if (icon) icon.className = 'fas fa-lock-open';
-                lockSystemButton.style.backgroundColor = '#28a745';
-                lockSystemButton.title = 'System Unlocked (Click to Lock)';
-            }
-        }
-
-        function checkAccess(callback) {
-            if (isLocked) {
-                showPasswordModal(callback);
-                return;
-            }
-            resetInactivityTimer();
-            if (callback) callback();
-        }
-
-        lockSystemButton.addEventListener('click', () => {
-            if (isLocked) {
-                checkAccess(() => {});
-            } else {
-                lockSystem();
-            }
-        });
-
-        ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(name => {
-            document.addEventListener(name, resetInactivityTimer);
-        });
-
-        function toggleDarkMode() {
-            document.body.classList.toggle('dark-mode');
-            const isDark = document.body.classList.contains('dark-mode');
-            localStorage.setItem('darkMode', isDark);
-            updateDarkModeIcon(isDark);
-        }
-
-        function updateDarkModeIcon(isDark) {
-            const icon = darkModeToggle.querySelector('i');
-            if (isDark) {
-                icon.classList.remove('fa-moon');
-                icon.classList.add('fa-sun');
-                darkModeToggle.style.backgroundColor = '#f1c40f';
-                darkModeToggle.title = 'Switch to Light Mode';
-            } else {
-                icon.classList.remove('fa-sun');
-                icon.classList.add('fa-moon');
-                darkModeToggle.style.backgroundColor = '#6c757d';
-                darkModeToggle.title = 'Switch to Dark Mode';
-            }
-        }
-
-        darkModeToggle.addEventListener('click', toggleDarkMode);
-        if (localStorage.getItem('darkMode') === 'true') {
-            document.body.classList.add('dark-mode');
-            updateDarkModeIcon(true);
-        }
-
-        let pendingBulkDeliveries = [];
-
-        const MATERIAL_CODE_HEADER = 'MATERIAL CODE', STOCKING_QTY_ROW_EXCEL_INDEX = 6, DATA_START_ROW_EXCEL_INDEX = 7;
-
-        // Global "Saving..." indicator — counter-based so overlapping saves (e.g. a
-        // quick edit right after a bulk action) don't hide the indicator early.
-        let activeSaveCount = 0;
-        function showSaveIndicator(isSaving) {
-            const el = document.getElementById('saveStatusIndicator');
-            if (!el) return;
-            activeSaveCount += isSaving ? 1 : -1;
-            if (activeSaveCount < 0) activeSaveCount = 0;
-            el.classList.toggle('is-visible', activeSaveCount > 0);
-        }
-
-        async function saveDataToAPI(dataToSave, invOptions = {}, newHistoryEntries = null, palletCapOptions = {}) {
-            showSaveIndicator(true);
-            try {
-                const payload = {};
-                const currentToken = getStoredToken();
-                if (!currentToken) {
-                    document.getElementById('errorMessage').textContent = 'Save Error: Unlock the system before saving.';
-                    return;
-                }
-
-                if (dataToSave.includes('inventoryData')) {
-                    const { changedCodes, deletedCodes } = invOptions;
-                    if (changedCodes || deletedCodes) {
-                        // Partial update: only send the rows that actually changed.
-                        if (changedCodes && changedCodes.length) {
-                            payload.changedItems = changedCodes
-                                .map(code => rowsByCode.get(code))
-                                .filter(Boolean)
-                                .map(row => ({
-                                    code: row.dataset.code,
-                                    stockingQty: row.dataset.stockingQty,
-                                    remarks: row.dataset.remarks,
-                                    locations: row.dataset.locations
-                                }));
-                        }
-                        if (deletedCodes && deletedCodes.length) {
-                            payload.deletedCodes = deletedCodes;
-                        }
-                    } else {
-                        payload.inventoryData = originalRowsOrder.map(row => ({
-                            code: row.dataset.code,
-                            stockingQty: row.dataset.stockingQty,
-                            remarks: row.dataset.remarks,
-                            locations: row.dataset.locations
-                        }));
-                    }
-                }
-                if (dataToSave.includes('transactionHistory')) {
-                    if (newHistoryEntries) {
-                        payload.newHistoryEntries = newHistoryEntries;
-                    } else {
-                        payload.transactionHistory = transactionHistory;
-                    }
-                }
-                if (dataToSave.includes('palletCapacities')) {
-                    const { changedCode } = palletCapOptions;
-                    if (changedCode !== undefined) {
-                        // Partial update: only send the one code that changed, so the
-                        // backend can upsert a single row instead of replacing all of them.
-                        payload.changedPalletCapacity = { code: changedCode, capacity: palletCapacities[changedCode] };
-                    } else {
-                        payload.palletCapacities = palletCapacities;
-                    }
-                }
-                const response = await fetch('/api/save-data', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${currentToken}`
-                    },
-                    body: JSON.stringify(payload)
-                });
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    if (response.status === 401) {
-                         document.getElementById('errorMessage').textContent = "Save Error: Your session expired. Please unlock again.";
-                         handleSessionExpired();
-                    } else {
-                         const details = errorData.error || errorData.details || response.statusText;
-                         throw new Error(`Failed to save to database. Details: ${details}`);
-                    }
-                    return;
-                }
-                document.getElementById('errorMessage').textContent = '';
-            } catch (error) {
-                console.error("Database save error:", error);
-                document.getElementById('errorMessage').textContent = `Save Error: ${error.message}`;
-            } finally {
-                showSaveIndicator(false);
-            }
-        }
-
-        async function loadDataFromAPI() {
-            const currentToken = getStoredToken();
-            if (!currentToken) {
-                const overlay = document.getElementById('pageLoadOverlay');
-                if (overlay) overlay.classList.add('is-hidden');
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/get-data', {
-                    headers: {
-                        'Authorization': `Bearer ${currentToken}`
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    if (response.status === 401) {
-                         document.getElementById('errorMessage').textContent = "Load Error: Your session expired. Please unlock again.";
-                         handleSessionExpired();
-                    } else {
-                         const details = errorData.error || errorData.details || response.statusText;
-                         throw new Error(`Failed to fetch from database. Details: ${details}`);
-                    }
-                    return;
-                }
-
-                const dbData = await response.json();
-
-                if (dbData.inventoryData) {
-                    const inventoryData = dbData.inventoryData;
-                    inventoryTableBody.innerHTML = '';
-                    originalRowsOrder = [];
-                    rowsByCode = new Map();
-                    inventoryData.forEach(item => {
-                        item.remarks = typeof item.remarks === 'string' ? JSON.parse(item.remarks || '[]') : (item.remarks || []);
-                        item.locations = typeof item.locations === 'string' ? JSON.parse(item.locations || '[]') : (item.locations || []);
-                        renderRow(item, false);
-                    });
-                }
-                if (dbData.transactionHistory) {
-                    transactionHistory = dbData.transactionHistory;
-                }
-                if (dbData.palletCapacities) {
-                    palletCapacities = dbData.palletCapacities;
-                }
-                applyFiltersAndSort(); // already calls renderHistoryLog internally — no need to call it twice
-                document.getElementById('errorMessage').textContent = '';
-            } catch (error) {
-                console.error("Database load error:", error);
-                document.getElementById('errorMessage').textContent = `Load Error: ${error.message}`;
-            } finally {
-                const overlay = document.getElementById('pageLoadOverlay');
-                if (overlay) overlay.classList.add('is-hidden');
-            }
-        }
-
-        function saveInventoryData(changedCodes = null, deletedCodes = null) { saveDataToAPI(['inventoryData'], { changedCodes, deletedCodes }); }
-        function saveHistoryData(newEntries = null) { saveDataToAPI(['transactionHistory'], {}, newEntries); }
-        function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) { const timestamp = new Date(); const newLog = { timestamp: timestamp.toISOString(), action, code, details }; if (meta) newLog.meta = meta; transactionHistory.unshift(newLog); if (skipSync) return newLog; prependHistoryLog(newLog); saveHistoryData([newLog]); return newLog; }
-        function getHistoryRowBadgeClass(action) {
-            const a = (action || '').toUpperCase();
-            if (a.includes('DELETE') || a.includes('CLEAR')) return 'history-badge-red';
-            if (a.includes('DELIVERY') || a.includes('RESTORE') || a.includes('IMPORT')) return 'history-badge-green';
-            if (a.includes('EDIT') || a.includes('WITHDRAW')) return 'history-badge-amber';
-            return 'history-badge-blue'; // EXPORT, PRINT, BACKUP
-        }
-        // Reuses the same color-coded breakdown compare used in the per-item Detailed
-        // Report (orange=Hold, pink=Approved, green=First Out/Old, grey=default) so the
-        // Transaction History expand view matches it instead of showing plain text.
-        function buildHistoryDetailHtml(log) {
-            const compareHTML = log.action === 'EDIT ITEM' ? buildBreakdownCompareHTML(log.meta)
-                : log.action === 'DELIVERY (BULK)' ? buildBreakdownCompareHTML(log.meta, 'Added')
-                : null;
-            if (compareHTML) return compareHTML;
-            return '<div class="history-detail-empty">No additional details for this entry.</div>';
-        }
-        // Builds the main row + hidden detail row for one history log entry and
-        // inserts them into historyTableBody. insertAtTop=true inserts at index 0
-        // (used by the incremental prependHistoryLog path); otherwise appends.
-        // Shared by renderHistoryLog (full rebuild) and prependHistoryLog (single
-        // new entry) so both paths stay in sync automatically.
-        function renderHistoryRowPair(log, searchTerm, insertAtTop) {
-            const row = insertAtTop ? historyTableBody.insertRow(0) : historyTableBody.insertRow();
-            row.classList.add('history-row');
-            const formattedDate = new Date(log.timestamp).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-            row.insertCell(0).textContent = formattedDate;
-            row.insertCell(1).innerHTML = `<span class="history-badge ${getHistoryRowBadgeClass(log.action)}">${highlightMatch(log.action, searchTerm)}</span>`;
-            row.insertCell(2).innerHTML = highlightMatch(log.code, searchTerm);
-            row.insertCell(3).innerHTML = highlightMatch(log.details, searchTerm);
-
-            const detailRow = insertAtTop ? historyTableBody.insertRow(1) : historyTableBody.insertRow();
-            detailRow.classList.add('history-detail-row-wrap');
-            detailRow.style.display = 'none';
-            const detailCell = detailRow.insertCell(0);
-            detailCell.colSpan = 99;
-            detailCell.innerHTML = buildHistoryDetailHtml(log);
-
-            row.addEventListener('click', () => {
-                detailRow.style.display = detailRow.style.display === 'none' ? 'table-row' : 'none';
-                row.classList.toggle('is-expanded');
-            });
-        }
-        // History table is paginated client-side: only HISTORY_PAGE_SIZE rows are
-        // built and inserted into the DOM at a time. Without this, every call to
-        // renderHistoryLog (every search keystroke, filter change, and bulk op)
-        // would tear down and rebuild a row pair for the ENTIRE transaction
-        // history — which gets slower and slower as history grows unbounded.
-        const HISTORY_PAGE_SIZE = 50;
-        let historyFilteredCache = [];
-        let historyRenderedCount = 0;
-        let historyCurrentSearchTerm = '';
-
-        function updateHistoryLoadMoreUI() {
-            const remaining = historyFilteredCache.length - historyRenderedCount;
-            if (remaining > 0) {
-                historyLoadMoreWrap.style.display = 'flex';
-                historyShownCount.textContent = `Showing ${historyRenderedCount} of ${historyFilteredCache.length} (${remaining} more)`;
-            } else {
-                historyLoadMoreWrap.style.display = 'none';
-                historyShownCount.textContent = historyFilteredCache.length > 0
-                    ? `Showing all ${historyFilteredCache.length}`
-                    : '';
-            }
-        }
-
-        function renderHistoryLog(searchTerm = '') {
-            historyTableBody.innerHTML = '';
-            historyCurrentSearchTerm = searchTerm;
-            const dateFrom = historyDateFrom.value ? new Date(historyDateFrom.value) : null;
-            const dateTo = historyDateTo.value ? new Date(historyDateTo.value) : null;
-            if (dateTo) dateTo.setHours(23, 59, 59, 999);
-
-            historyFilteredCache = transactionHistory.filter(log => {
-                const logDate = new Date(log.timestamp);
-                if (dateFrom && logDate < dateFrom) return false;
-                if (dateTo && logDate > dateTo) return false;
-
-                if (!searchTerm) return true;
-                return log.code.toLowerCase().includes(searchTerm) ||
-                       log.details.toLowerCase().includes(searchTerm) ||
-                       log.action.toLowerCase().includes(searchTerm);
-            });
-            historyRenderedCount = 0;
-
-            if (historyFilteredCache.length === 0) {
-                const emptyRow = historyTableBody.insertRow();
-                const emptyCell = emptyRow.insertCell(0);
-                emptyCell.colSpan = 99;
-                const hasAnyLogs = transactionHistory.length > 0;
-                emptyCell.innerHTML = hasAnyLogs
-                    ? '<div class="table-empty-state"><i class="fas fa-filter-circle-xmark"></i><span>No transactions match your current filters.</span></div>'
-                    : '<div class="table-empty-state"><i class="fas fa-clock-rotate-left"></i><span>No transaction history yet.</span></div>';
-                updateHistoryLoadMoreUI();
-                return;
-            }
-
-            const firstBatch = historyFilteredCache.slice(0, HISTORY_PAGE_SIZE);
-            firstBatch.forEach(log => renderHistoryRowPair(log, searchTerm, false));
-            historyRenderedCount = firstBatch.length;
-            updateHistoryLoadMoreUI();
-        }
-
-        function loadMoreHistoryRows() {
-            const nextBatch = historyFilteredCache.slice(historyRenderedCount, historyRenderedCount + HISTORY_PAGE_SIZE);
-            nextBatch.forEach(log => renderHistoryRowPair(log, historyCurrentSearchTerm, false));
-            historyRenderedCount += nextBatch.length;
-            updateHistoryLoadMoreUI();
-        }
-        historyLoadMoreButton.addEventListener('click', loadMoreHistoryRows);
-        // Incremental path for a single new log entry (used by logTransaction for
-        // day-to-day single actions) — avoids a full historyTableBody rebuild.
-        // Falls back to nothing (not a full render) if the entry doesn't pass the
-        // active date/search filters, matching what a full renderHistoryLog would
-        // have shown anyway. Bulk operations and explicit filter changes still use
-        // the full renderHistoryLog path untouched.
-        function prependHistoryLog(log) {
-            const searchTerm = searchBar.value.toLowerCase();
-            const dateFrom = historyDateFrom.value ? new Date(historyDateFrom.value) : null;
-            const dateTo = historyDateTo.value ? new Date(historyDateTo.value) : null;
-            if (dateTo) dateTo.setHours(23, 59, 59, 999);
-            const logDate = new Date(log.timestamp);
-            if ((dateFrom && logDate < dateFrom) || (dateTo && logDate > dateTo)) return;
-            if (searchTerm) {
-                const matches = log.code.toLowerCase().includes(searchTerm) ||
-                                log.details.toLowerCase().includes(searchTerm) ||
-                                log.action.toLowerCase().includes(searchTerm);
-                if (!matches) return;
-            }
-            if (historyTableBody.querySelector('.table-empty-state')) historyTableBody.innerHTML = '';
-            renderHistoryRowPair(log, searchTerm, true);
-            // Keep the pagination cache/count in sync so Load More still shows the
-            // correct remaining count instead of drifting after incremental adds.
-            historyFilteredCache.unshift(log);
-            historyRenderedCount++;
-            updateHistoryLoadMoreUI();
-        }
-
-        // ---- Detailed Item Transaction Report ----
-        function getActionBadgeClass(action) {
-            if (action.includes('DELIVERY')) return 'badge-delivery';
-            if (action.includes('WITHDRAW')) return 'badge-withdraw';
-            if (action === 'EDIT ITEM') return 'badge-edit';
-            if (action === 'DELETE ITEM') return 'badge-delete';
-            if (action.includes('CLEAR')) return 'badge-clear';
-            return 'badge-other';
-        }
-        // Builds a two-row "Before / After" breakdown comparison, color-coded the same
-        // way as the main table (orange=Hold, pink=Approved, green=First Out/Old, grey=default).
-        function buildBreakdownCompareHTML(meta, singleLabel) {
-            if (!meta) return null;
-            const oldFormatted = formatStockingQty(meta.oldQty || '');
-            const newFormatted = formatStockingQty(meta.newQty || '');
-            const oldHTML = formatStockingQtyAndRemarksForDisplay(oldFormatted, meta.oldRemarks || [], meta.oldLocations || []) || '<span class="color-grey">(none)</span>';
-            const newHTML = formatStockingQtyAndRemarksForDisplay(newFormatted, meta.newRemarks || [], meta.newLocations || []) || '<span class="color-grey">(none)</span>';
-            let addedRow = '';
-            if (meta.addedQty) {
-                const addedHTML = formatStockingQtyAndRemarksForDisplay(formatStockingQty(meta.addedQty), meta.addedRemarks || [], meta.addedLocations || []);
-                if (addedHTML) addedRow = `<div class="breakdown-row"><span class="breakdown-row-label">${singleLabel || 'Added'}:</span><span class="breakdown-row-value">${addedHTML}</span></div>`;
-            }
-            return `<div class="breakdown-compare">
-                <div class="breakdown-row"><span class="breakdown-row-label">Before:</span><span class="breakdown-row-value">${oldHTML}</span></div>
-                ${addedRow}
-                <div class="breakdown-row"><span class="breakdown-row-label">After:</span><span class="breakdown-row-value">${newHTML}</span></div>
-            </div>`;
-        }
-        // Parses a single item's qty delta out of a log entry, whether the log is
-        // a single-item transaction or a bulk one that bundles several items together.
-        function getItemLogsForCode(code) {
-            const results = [];
-            transactionHistory.forEach(log => {
-                if (log.code === code) {
-                    // Direct single-item log (DELIVERY (BULK) per item, EDIT ITEM, DELETE ITEM, etc.)
-                    let delta = null;
-                    let deltaLabel = log.details;
-                    const plusMatch = log.details.match(/\+([\d,]+(?:\.\d+)?)/);
-                    const minusMatch = log.details.match(/-([\d,]+(?:\.\d+)?)/);
-                    if (log.action === 'EDIT ITEM') {
-                        const m = log.details.match(/Qty: "(.*)" -> "(.*)"/);
-                        if (m) {
-                            const oldTotal = calculateSingleStockingQtyTotal(formatStockingQty(m[1]));
-                            const newTotal = calculateSingleStockingQtyTotal(formatStockingQty(m[2]));
-                            delta = newTotal - oldTotal;
-                            deltaLabel = `${m[1] || '(empty)'} → ${m[2] || '(empty)'}`;
-                        }
-                    } else if (plusMatch) {
-                        delta = parseFloat(plusMatch[1].replace(/,/g, ''));
-                    } else if (minusMatch) {
-                        delta = -parseFloat(minusMatch[1].replace(/,/g, ''));
-                    }
-                    results.push({ timestamp: log.timestamp, action: log.action, delta, deltaLabel, details: log.details, meta: log.meta || null });
-                } else if (log.action === 'BULK WITHDRAW' && log.details) {
-                    // Bulk withdraw logs bundle multiple items as "CODE (-123), CODE2 (-45)"
-                    const parts = log.details.split(', ');
-                    parts.forEach(p => {
-                        const m = p.match(/^(.*?)\s*\((-[\d,]+(?:\.\d+)?)\)$/);
-                        if (m && m[1].trim() === code) {
-                            const delta = parseFloat(m[2].replace(/,/g, ''));
-                            results.push({ timestamp: log.timestamp, action: 'WITHDRAW', delta, deltaLabel: `${delta.toLocaleString()} pcs`, details: `Part of bulk withdrawal (${parts.length} items)`, meta: null });
-                        }
-                    });
-                } else if (log.action === 'BULK CLEAR QTY' && log.details && log.details.split(', ').map(s => s.trim()).includes(code)) {
-                    results.push({ timestamp: log.timestamp, action: 'BULK CLEAR QTY', delta: null, deltaLabel: 'Cleared', details: 'Quantity cleared as part of a bulk clear action.', meta: null });
-                }
-            });
-            return results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        }
-        function renderItemDetailedReport(code) {
-            itemReportCode.textContent = code;
-            const logs = getItemLogsForCode(code);
-
-            // Current live breakdown, reusing the same color-coding as the main table
-            const row = rowsByCode.get(code);
-            if (row) {
-                const remarks = JSON.parse(row.dataset.remarks || '[]');
-                const formatted = formatStockingQty(row.dataset.stockingQty);
-                itemReportCurrentBreakdown.innerHTML = formatStockingQtyAndRemarksForDisplay(formatted, remarks) || '<span class="color-grey">No stock recorded</span>';
-            } else {
-                itemReportCurrentBreakdown.innerHTML = '<span class="color-grey">Item not currently in inventory</span>';
-            }
-
-            // Summary stats
-            let totalIn = 0, totalOut = 0, editCount = 0;
-            logs.forEach(l => {
-                if (l.action === 'EDIT ITEM') editCount++;
-                else if (typeof l.delta === 'number') {
-                    if (l.delta > 0) totalIn += l.delta;
-                    else if (l.delta < 0) totalOut += Math.abs(l.delta);
-                }
-            });
-            itemReportSummary.innerHTML = `
-                <div class="report-stat-card"><div class="stat-label">Transactions</div><div class="stat-value">${logs.length}</div></div>
-                <div class="report-stat-card"><div class="stat-label">Total Delivered</div><div class="stat-value" style="color:#10b981;">+${totalIn.toLocaleString()}</div></div>
-                <div class="report-stat-card"><div class="stat-label">Total Withdrawn</div><div class="stat-value" style="color:#ef4444;">-${totalOut.toLocaleString()}</div></div>
-                <div class="report-stat-card"><div class="stat-label">Net Change</div><div class="stat-value">${(totalIn - totalOut) >= 0 ? '+' : ''}${(totalIn - totalOut).toLocaleString()}</div></div>
-                <div class="report-stat-card"><div class="stat-label">Edits Made</div><div class="stat-value">${editCount}</div></div>
-            `;
-
-            itemReportTableBody.innerHTML = '';
-            if (logs.length === 0) {
-                itemReportEmptyState.style.display = 'block';
-            } else {
-                itemReportEmptyState.style.display = 'none';
-                logs.forEach(l => {
-                    const tr = itemReportTableBody.insertRow();
-                    const formattedDate = new Date(l.timestamp).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-                    tr.insertCell(0).textContent = formattedDate;
-                    tr.insertCell(1).innerHTML = `<span class="action-badge ${getActionBadgeClass(l.action)}">${escapeHtml(l.action)}</span>`;
-                    const deltaCell = tr.insertCell(2);
-                    if (typeof l.delta === 'number') {
-                        const cls = l.delta > 0 ? 'qty-delta-positive' : (l.delta < 0 ? 'qty-delta-negative' : 'qty-delta-neutral');
-                        deltaCell.innerHTML = `<span class="${cls}">${l.delta > 0 ? '+' : ''}${l.delta.toLocaleString()}</span>`;
-                    } else {
-                        deltaCell.innerHTML = '<span class="qty-delta-neutral">—</span>';
-                    }
-                    const detailsCell = tr.insertCell(3);
-                    const compareHTML = l.action === 'EDIT ITEM' ? buildBreakdownCompareHTML(l.meta)
-                        : l.action === 'DELIVERY (BULK)' ? buildBreakdownCompareHTML(l.meta, 'Added')
-                        : null;
-                    if (compareHTML) {
-                        detailsCell.innerHTML = compareHTML;
-                    } else {
-                        // Fallback for actions without structured breakdown meta (older logs, withdrawals, clears, etc.)
-                        const fallbackText = l.deltaLabel && l.deltaLabel !== l.details ? `${l.deltaLabel}  (${l.details})` : l.details;
-                        detailsCell.innerHTML = `<span class="breakdown-row-value">${escapeHtml(fallbackText).replace(/ \| /g, '<br>')}</span>`;
-                    }
-                });
-            }
-        }
-        viewDetailedReportButton.addEventListener('click', () => {
-            if (!currentEditingRow) return;
-            renderItemDetailedReport(currentEditingRow.dataset.code);
-            itemDetailedReportModal.style.display = 'block';
-        });
-        closeItemReportButton.addEventListener('click', () => { itemDetailedReportModal.style.display = 'none'; });
-        exportItemReportButton.addEventListener('click', async () => {
-            await loadXLSX();
-            const code = itemReportCode.textContent;
-            const logs = getItemLogsForCode(code);
-            const dataForExport = [['DATE & TIME', 'TRANSACTION', 'QTY CHANGE', 'BEFORE', 'AFTER', 'DETAILS']];
-            logs.forEach(l => {
-                const formattedDate = new Date(l.timestamp).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-                const before = l.meta ? formatStockingQty(l.meta.oldQty || '') : '';
-                const after = l.meta ? formatStockingQty(l.meta.newQty || '') : '';
-                const detailsText = l.deltaLabel && l.deltaLabel !== l.details ? `${l.deltaLabel}  (${l.details})` : l.details;
-                dataForExport.push([formattedDate, l.action, typeof l.delta === 'number' ? l.delta : '', before, after, detailsText]);
-            });
-            if (dataForExport.length <= 1) { showToast('No transaction history to export for this item.', 'error'); return; }
-            const ws = XLSX.utils.aoa_to_sheet(dataForExport);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Item Report");
-            XLSX.writeFile(wb, `item_report_${code}_${Date.now()}.xlsx`);
-            logTransaction('EXPORT ITEM REPORT', code, 'Detailed item transaction report exported.');
-        });
-
-        function updateDateTimeAndShift() { const now = new Date(); const year = now.getFullYear(); const month = String(now.getMonth() + 1).padStart(2, '0'); const day = String(now.getDate()).padStart(2, '0'); currentDateInput.value = `${year}-${month}-${day}`; const hours = String(now.getHours()).padStart(2, '0'); const minutes = String(now.getMinutes()).padStart(2, '0'); currentTimeInput.value = `${hours}:${minutes}`; const currentHour = now.getHours(); if (currentHour >= 6 && currentHour < 18) { currentShiftSelect.value = 'Day Shift'; } else { currentShiftSelect.value = 'Night Shift'; } }
-        function formatStockingQty(qty) { if (!qty) return ''; let s = String(qty).trim(); s = s.replace(/\s*(\+|\||l|L)\s*/g, '|'); const parts = s.split('|').filter(part => part.trim() !== '').map(part => { let p = part.trim(); p = p.replace(/\s*(\*|x|X)\s*/g, '×'); return p; }); return parts.join(' | '); }
-        function inferCapacity(stockingQty) {
-            const parts = getBreakdownParts(formatStockingQty(stockingQty));
-            for (let part of parts) {
-                if (part.includes('×')) {
-                    const subParts = part.split('×');
-                    const cap = parseFloat(subParts[subParts.length - 1].trim());
-                    if (!isNaN(cap)) return cap;
-                }
-            }
-            return null;
-        }
-        function generateBreakdownWithCapacity(totalQty, capacity) {
-            if (!capacity || capacity <= 0) return String(totalQty);
-            const full = Math.floor(totalQty / capacity);
-            const rem = totalQty % capacity;
-            let parts = [];
-            if (full > 0) parts.push(`${full}×${capacity}`);
-            if (rem > 0) parts.push(String(rem));
-            return parts.join(' | ');
-        }
-        function getBreakdownParts(breakdownString) { return breakdownString ? breakdownString.split(' | ') : []; }
-
-        function mergeDeliveriesBreakdown(existingQty, newQty, capacity) {
-            if (!capacity) return existingQty + '+' + newQty;
-
-            const allPartsStr = existingQty + '+' + newQty;
-            let normalized = allPartsStr.replace(/\s*\|\s*/g, '+').replace(/×/g, 'x');
-            const parts = normalized.split('+').filter(p => p.trim() !== '');
-
-            let fullCount = 0;
-            let loose = [];
-
-            for (let p of parts) {
-                p = p.trim();
-                const m = p.match(/^(\d+)[xX\*](\d+)$/);
-                if (m) {
-                    const num = parseInt(m[1], 10);
-                    const cap = parseInt(m[2], 10);
-                    if (cap === capacity) {
-                        fullCount += num;
-                    } else {
-                        loose.push(p);
-                    }
-                } else if (parseInt(p, 10) === capacity && !isNaN(p)) {
-                    fullCount += 1;
-                } else {
-                    loose.push(p);
-                }
-            }
-
-            let res = [];
-            if (fullCount > 1) {
-                res.push(`${fullCount}x${capacity}`);
-            } else if (fullCount === 1) {
-                res.push(`${capacity}`);
-            }
-
-            res = res.concat(loose);
-            return res.join('+');
-        }
-        function calculateSingleStockingQtyTotal(breakdownString) { return getBreakdownParts(formatStockingQty(breakdownString)).reduce((total, part) => { let value = 0; part = part.trim().replace(/,/g, ''); if (part.includes('×')) { value = part.split('×').reduce((prod, num) => prod * parseFloat(num.trim()), 1); } else { value = parseFloat(part); } return total + (isNaN(value) ? 0 : value); }, 0); }
-        const REMARK_COLOR_MAP = [ { keywords: ['hold'], colorClass: 'color-orange' }, { keywords: ['approve', 'approved'], colorClass: 'color-pink' }, { keywords: ['first out', 'old'], colorClass: 'color-green' }, { keywords: [], colorClass: 'color-grey', isDefault: true }];
-        function getColorClassForRemark(remark) { const lowerRemark = remark.toLowerCase().trim(); if (!lowerRemark) return REMARK_COLOR_MAP.find(m => m.isDefault)?.colorClass || 'color-default'; for (const mapping of REMARK_COLOR_MAP) { if (!mapping.isDefault && mapping.keywords.some(kw => lowerRemark.startsWith(kw))) return mapping.colorClass; } return REMARK_COLOR_MAP.find(m => m.isDefault)?.colorClass || 'color-default'; }
-        function formatStockingQtyAndRemarksForDisplay(breakdownString, remarksArray, locationsArray, shorten) { const parts = getBreakdownParts(breakdownString); if (!parts.length || (parts.length === 1 && !parts[0])) return ''; locationsArray = locationsArray || []; return parts.map((part, index) => { const remark = remarksArray[index] || ''; const colorClass = getColorClassForRemark(remark); const loc = (locationsArray[index] || '').trim(); const locTag = loc ? `<span class="location-tag" title="Building/Rack">${escapeHtml(loc)}</span>` : ''; const trimmedPart = part.trim(); let displayText = trimmedPart; let titleAttr = ''; if (shorten) { const multMatch = trimmedPart.match(/^([\d.,]+)\s*×/); if (multMatch) { displayText = `(${multMatch[1]})`; titleAttr = ` title="${escapeHtml(trimmedPart)}"`; } } return `<span class="${colorClass}"${titleAttr}>${escapeHtml(displayText)}</span>${locTag}`; }).join(' | '); }
-        function convertToExcelFormula(stockingQty) { if (!stockingQty || !stockingQty.trim()) return 0; let formula = String(stockingQty).trim(); formula = formula.replace(/×|x|\*/gi, '*'); formula = formula.replace(/\|/g, '+'); formula = formula.replace(/\s*[lL]\s*/g, '+'); formula = formula.replace(/,/g, ''); formula = formula.replace(/\s+/g, ' '); if (!formula) return 0; return `=${formula}`; }
-        function generateBackupFilename() { const dateValue = currentDateInput.value; const [year, month, day] = dateValue.split('-'); const shortYear = year.slice(-2); const formattedDate = `${month}-${day}-${shortYear}`; const timeValue = currentTimeInput.value; let [hours, minutes] = timeValue.split(':'); hours = parseInt(hours, 10); const ampm = hours >= 12 ? 'PM' : 'AM'; hours = hours % 12; hours = hours ? hours : 12; const formattedTime = `${hours}-${minutes}-${ampm}`; const shiftValue = currentShiftSelect.value; const shiftAbbreviation = shiftValue === 'Day Shift' ? 'DS' : 'NS'; return `backup_${formattedDate}_${formattedTime}_${shiftAbbreviation}.xlsx`; }
-        function generateReportFilename() { const dateValue = currentDateInput.value; const [year, month, day] = dateValue.split('-'); const shortYear = year.slice(-2); const formattedDate = `${month}-${day}-${shortYear}`; const timeValue = currentTimeInput.value; let [hours, minutes] = timeValue.split(':'); hours = parseInt(hours, 10); const ampm = hours >= 12 ? 'PM' : 'AM'; hours = hours % 12; hours = hours ? hours : 12; const formattedTime = `${hours}-${minutes}-${ampm}`; const shiftValue = currentShiftSelect.value; const shiftAbbreviation = shiftValue === 'Day Shift' ? 'DS' : 'NS'; return `report_${formattedDate}_${formattedTime}_${shiftAbbreviation}.xlsx`; }
-        function isShortenBreakdownOn() { return shortenBreakdownCheckbox ? shortenBreakdownCheckbox.checked : false; }
-        function isSimplifyBreakdownOn() { return simplifyBreakdownCheckbox ? simplifyBreakdownCheckbox.checked : false; }
-
-        // Groups breakdown parts that share the same multiplicand (e.g. 17×24000 | 12×24000 -> (17 + 12) × 24000).
-        // Display-only: never mutates the stored/original breakdown data or its order.
-        function simplifyBreakdownForDisplay(formattedBreakdownString, remarksArray, locationsArray) {
-            const parts = getBreakdownParts(formattedBreakdownString);
-            remarksArray = remarksArray || [];
-            locationsArray = locationsArray || [];
-            const groups = [];
-            const keyIndexMap = new Map();
-            parts.forEach((part, idx) => {
-                const trimmed = part.trim();
-                const m = trimmed.match(/^([\d.,]+)\s*×\s*([\d.,]+)$/);
-                if (m) {
-                    const multiplier = m[1], multiplicand = m[2];
-                    if (keyIndexMap.has(multiplicand)) {
-                        const g = groups[keyIndexMap.get(multiplicand)];
-                        g.multipliers.push(multiplier);
-                        g.indices.push(idx);
-                    } else {
-                        keyIndexMap.set(multiplicand, groups.length);
-                        groups.push({ type: 'mult', multiplicand, multipliers: [multiplier], indices: [idx] });
-                    }
-                } else {
-                    groups.push({ type: 'plain', raw: trimmed, indices: [idx] });
-                }
-            });
-            const newParts = [], newRemarks = [], newLocations = [];
-            groups.forEach(g => {
-                if (g.type === 'plain') {
-                    newParts.push(g.raw);
-                } else if (g.multipliers.length > 1) {
-                    newParts.push(`(${g.multipliers.join(' + ')}) × ${g.multiplicand}`);
-                } else {
-                    newParts.push(`${g.multipliers[0]}×${g.multiplicand}`);
-                }
-                const firstIdx = g.indices[0];
-                newRemarks.push(remarksArray[firstIdx] || '');
-                newLocations.push(locationsArray[firstIdx] || '');
-            });
-            return { formatted: newParts.join(' | '), remarks: newRemarks, locations: newLocations };
-        }
-
-        // Single entry point used everywhere the on-screen/printed breakdown cell is rendered.
-        // Applies Simplify (grouping) then Short Qty (collapsing) on top of the untouched stored data.
-        function renderBreakdownCellHtml(rawStockingQty, remarksArray, locationsArray) {
-            const formattedBreakdown = formatStockingQty(rawStockingQty);
-            let displayBreakdown = formattedBreakdown, displayRemarks = remarksArray || [], displayLocations = locationsArray || [];
-            if (isSimplifyBreakdownOn()) {
-                const simplified = simplifyBreakdownForDisplay(formattedBreakdown, displayRemarks, displayLocations);
-                displayBreakdown = simplified.formatted; displayRemarks = simplified.remarks; displayLocations = simplified.locations;
-            }
-            return formatStockingQtyAndRemarksForDisplay(displayBreakdown, displayRemarks, displayLocations, isShortenBreakdownOn());
-        }
-
-        function refreshAllBreakdownDisplays() {
-            originalRowsOrder.forEach(row => {
-                const remarks = JSON.parse(row.dataset.remarks || '[]');
-                const locations = JSON.parse(row.dataset.locations || '[]');
-                row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, remarks, locations);
-            });
-        }
-        function renderRow(item, shouldSave = true) { const row = inventoryTableBody.insertRow(); originalRowsOrder.push(row); rowsByCode.set(item.code, row); row.dataset.code = item.code; row.dataset.stockingQty = item.stockingQty; row.dataset.remarks = JSON.stringify(item.remarks); row.dataset.locations = JSON.stringify(item.locations || []); const formattedBreakdown = formatStockingQty(item.stockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); const codeCell = row.insertCell(0); codeCell.textContent = item.code; codeCell.dataset.label = "MATERIAL CODE:"; const breakdownCell = row.insertCell(1); breakdownCell.innerHTML = renderBreakdownCellHtml(item.stockingQty, item.remarks, item.locations || []); breakdownCell.classList.add('editable-breakdown'); breakdownCell.dataset.label = "Stocking Qty:"; const totalCell = row.insertCell(2); totalCell.textContent = total.toLocaleString(); totalCell.classList.add('total-per-row', 'column-hidden'); totalCell.dataset.label = "Total per Row:"; const remarksCell = row.insertCell(3); remarksCell.textContent = item.remarks.filter(r => r).join(' | '); remarksCell.classList.add('column-hidden'); remarksCell.dataset.label = "Remarks:"; if (shouldSave) { saveInventoryData(); } }
-
-        function escapeHtml(str) {
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
-        // Replaces a native <input list="..."> datalist combobox with a custom filtered
-        // dropdown panel. Native <datalist> gets sluggish in most browsers once it holds
-        // hundreds+ of <option> elements (this app can have 1,500+ SKUs) — this renders
-        // only the top matches (capped at maxResults) instead, so typing stays responsive
-        // regardless of total inventory size.
-        // - getOptions(): () => [{ value, label }] — called fresh each time the panel opens/filters
-        // - onSelect(value): called when the user picks an item (click, Enter, or Tab)
-        // Returns { selectHighlighted(), isOpen(), close() } so the caller's own keydown
-        // handler can trigger selection (e.g. on Enter/Tab) before falling back to its
-        // own logic.
-        function attachSearchableCombobox(input, { getOptions, onSelect, maxResults = 50, emptyText = 'No matches' }) {
-            const wrapper = input.parentElement;
-            if (getComputedStyle(wrapper).position === 'static') wrapper.style.position = 'relative';
-
-            const panel = document.createElement('div');
-            panel.className = 'combobox-panel';
-            panel.style.display = 'none';
-            wrapper.appendChild(panel);
-
-            let currentOptions = [];
-            let highlightedIndex = -1;
-
-            function updateHighlight() {
-                Array.from(panel.children).forEach((el, i) => el.classList.toggle('is-highlighted', i === highlightedIndex));
-                const activeEl = panel.children[highlightedIndex];
-                if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
-            }
-
-            function renderPanel(filterText) {
-                const all = getOptions();
-                const q = filterText.trim().toLowerCase();
-                currentOptions = q
-                    ? all
-                        .map(opt => ({ opt, matchIdx: opt.value.toLowerCase().indexOf(q) }))
-                        .filter(x => x.matchIdx !== -1)
-                        .sort((a, b) => a.matchIdx - b.matchIdx) // earlier match position ranks first; stable sort preserves the original stock/alphabetical order among ties
-                        .map(x => x.opt)
-                        .slice(0, maxResults)
-                    : all.slice(0, maxResults);
-                highlightedIndex = currentOptions.length ? 0 : -1;
-                panel.innerHTML = currentOptions.length === 0
-                    ? `<div class="combobox-empty">${escapeHtml(emptyText)}</div>`
-                    : currentOptions.map((opt, i) => `<div class="combobox-option${i === 0 ? ' is-highlighted' : ''}" data-idx="${i}"><span class="combobox-option-value">${escapeHtml(opt.value)}</span>${opt.label ? `<span class="combobox-option-label">${opt.label}</span>` : ''}</div>`).join('');
-                panel.style.display = 'block';
-            }
-
-            function closePanel() {
-                panel.style.display = 'none';
-                currentOptions = [];
-                highlightedIndex = -1;
-            }
-
-            function selectIndex(i) {
-                const opt = currentOptions[i];
-                if (!opt) return;
-                input.value = opt.value;
-                closePanel();
-                onSelect(opt.value);
-            }
-
-            input.addEventListener('input', () => renderPanel(input.value));
-            input.addEventListener('focus', () => renderPanel(input.value));
-
-            input.addEventListener('keydown', (e) => {
-                if (panel.style.display === 'none') return;
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    if (currentOptions.length) { highlightedIndex = (highlightedIndex + 1) % currentOptions.length; updateHighlight(); }
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    if (currentOptions.length) { highlightedIndex = (highlightedIndex - 1 + currentOptions.length) % currentOptions.length; updateHighlight(); }
-                } else if (e.key === 'Escape') {
-                    closePanel();
-                }
-            });
-
-            // mousedown (not click) so this fires before the input's blur/close-on-outside-click
-            panel.addEventListener('mousedown', (e) => {
-                const optionEl = e.target.closest('.combobox-option');
-                if (!optionEl) return;
-                e.preventDefault();
-                selectIndex(parseInt(optionEl.dataset.idx, 10));
-            });
-
-            document.addEventListener('click', (e) => { if (!wrapper.contains(e.target)) closePanel(); });
-
-            return {
-                selectHighlighted: () => { if (panel.style.display !== 'none' && highlightedIndex > -1) { selectIndex(highlightedIndex); return true; } return false; },
-                isOpen: () => panel.style.display !== 'none',
-                close: closePanel
-            };
-        }
-        function highlightMatch(text, term) {
-            const safeText = escapeHtml(text);
-            if (!term) return safeText;
-            try {
-                const regex = new RegExp(`(${term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi');
-                return safeText.replace(regex, '<span class="highlight">$1</span>');
-            } catch (e) { return safeText; }
-        }
-
-        function getMovedItems(dateFrom, timeFrom, dateTo, timeTo) {
-            let movedItems = new Set();
-            let start = dateFrom ? new Date(`${dateFrom}T${timeFrom || '00:00'}`) : new Date(0);
-            let end = dateTo ? new Date(`${dateTo}T${timeTo || '23:59'}`) : new Date();
-
-            transactionHistory.forEach(log => {
-                const logDate = new Date(log.timestamp);
-                if (logDate >= start && logDate <= end) {
-                    if (log.action === 'BULK WITHDRAW') {
-                        const parts = log.details.split(', ');
-                        parts.forEach(p => {
-                            const codeMatch = p.match(/^(.*?) \(/);
-                            if (codeMatch) movedItems.add(codeMatch[1].trim());
-                        });
-                    } else if (log.code && log.code !== '-') {
-                        movedItems.add(log.code.trim());
-                    }
-                }
-            });
-            return movedItems;
-        }
-
-        function applyFiltersAndSort() {
-            const itemType = itemTypeFilter.value;
-            const remarkType = remarksFilter.value;
-            const dataType = dataPresenceFilter.value;
-            const sortType = materialCodeSort.value;
-            const searchTerm = searchBar.value.toLowerCase();
-
-            const isMovementActive = enableMovementFilter.checked;
-            const movedItemsSet = isMovementActive ? getMovedItems(moveDateFrom.value, moveTimeFrom.value, moveDateTo.value, moveTimeTo.value) : new Set();
-            const showOnlyMoved = isMovementActive && movementMode.value === 'FILTER_ONLY';
-
-            let rowsToShow = [...originalRowsOrder];
-            rowsToShow = rowsToShow.filter(row => {
-                const code = row.dataset.code;
-                const remarks = JSON.parse(row.dataset.remarks || '[]').map(r => r.toLowerCase().trim());
-                const qtyText = row.cells[1].textContent.trim();
-
-                if (searchTerm && !Array.from(row.cells).map(cell => cell.textContent).join(' ').toLowerCase().includes(searchTerm)) return false;
-                const passesItem = itemType === 'ALL' || (itemType === 'LBL' && code.startsWith('LBL')) || (itemType === 'CTN' && code.startsWith('CTN')) || (itemType === 'PLASTIC' && (code.startsWith('BAG') || code.includes('BUNDLE'))) || (itemType === 'OTHERS' && !/^(LBL|CTN|BAG)|BUNDLE/.test(code));
-                const passesData = dataType === 'ALL' || (dataType === 'WITH_DATA' && qtyText) || (dataType === 'WITHOUT_DATA' && !qtyText);
-                let passesRemark = false;
-                const hasHold = remarks.some(r => r.startsWith('hold'));
-                const hasApproved = remarks.some(r => r.startsWith('approve') || r.startsWith('approved'));
-                const hasOld = remarks.some(r => r.startsWith('first out') || r.startsWith('old'));
-                const hasAnyRemark = remarks.some(r => r !== '');
-                switch (remarkType) {
-                    case 'ALL': passesRemark = true; break;
-                    case 'HOLD': passesRemark = hasHold; break;
-                    case 'APPROVED': passesRemark = hasApproved; break;
-                    case 'FIRSTOUT_OLD': passesRemark = hasOld; break;
-                    case 'NO_REMARK': passesRemark = !hasAnyRemark; break;
-                    case 'OTHER_REMARKS': passesRemark = hasAnyRemark && !hasHold && !hasApproved && !hasOld; break;
-                }
-
-                if (showOnlyMoved && !movedItemsSet.has(code)) return false;
-
-                return passesItem && passesRemark && passesData;
-            });
-            if (sortType !== 'NONE') {
-                rowsToShow.sort((a, b) => {
-                    const codeA = a.dataset.code;
-                    const codeB = b.dataset.code;
-                    return sortType === 'ASC' ? codeA.localeCompare(codeB) : codeB.localeCompare(codeA);
-                });
-            }
-            inventoryTableBody.innerHTML = '';
-            if (rowsToShow.length === 0) {
-                const emptyRow = inventoryTableBody.insertRow();
-                const emptyCell = emptyRow.insertCell(0);
-                emptyCell.colSpan = 99;
-                const hasAnyItems = originalRowsOrder.length > 0;
-                emptyCell.innerHTML = hasAnyItems
-                    ? '<div class="table-empty-state"><i class="fas fa-filter-circle-xmark"></i><span>No items match your current filters.</span></div>'
-                    : '<div class="table-empty-state"><i class="fas fa-box-open"></i><span>No items yet. Add or import inventory to get started.</span></div>';
-            } else {
-            rowsToShow.forEach(row => {
-                const code = row.dataset.code;
-                const codeCell = row.cells[0];
-                const isMoved = isMovementActive && movedItemsSet.has(code);
-
-                const highlightedCode = highlightMatch(code, searchTerm);
-                if (isMoved) {
-                    codeCell.innerHTML = `<span style="color: red; font-weight: bold;">★</span> ${highlightedCode}`;
-                } else {
-                    codeCell.innerHTML = highlightedCode;
-                }
-
-                inventoryTableBody.appendChild(row);
-            });
-            }
-
-            // Also filter Transaction History
-            renderHistoryLog(searchTerm);
-
-            // Update glass-theme summary cards
-            updateStatSummaryCards(rowsToShow.length);
-        }
-
-        function updateStatSummaryCards(shownCount) {
-            const totalEl = document.getElementById('statTotalSkus');
-            const shownEl = document.getElementById('statShownSkus');
-            const holdEl = document.getElementById('statHoldSkus');
-            if (!totalEl || !shownEl || !holdEl) return;
-
-            const holdCount = originalRowsOrder.filter(row => {
-                const remarks = JSON.parse(row.dataset.remarks || '[]').map(r => r.toLowerCase().trim());
-                return remarks.some(r => r.startsWith('hold'));
-            }).length;
-
-            totalEl.textContent = originalRowsOrder.length.toLocaleString();
-            shownEl.textContent = shownCount.toLocaleString();
-            holdEl.textContent = holdCount.toLocaleString();
-        }
-        function exportReportFile() { const dataForExport = [['MATERIAL CODE', 'Stocking Qty', 'Total per Row', 'Remarks', 'Building/Rack']]; originalRowsOrder.forEach(row => { const code = row.dataset.code; const stockingQty = row.dataset.stockingQty; const formula = convertToExcelFormula(stockingQty); const remarks = JSON.parse(row.dataset.remarks || '[]').join(' | '); const locations = JSON.parse(row.dataset.locations || '[]').filter(l => l).join(' | '); dataForExport.push([code, stockingQty, formula, remarks, locations]); }); if (dataForExport.length <= 1) { showToast('No data to export!', 'error'); return; } const ws = XLSX.utils.aoa_to_sheet(dataForExport); for (let i = 1; i < dataForExport.length; i++) { const cellAddress = 'C' + (i + 1); const cell = ws[cellAddress]; if (cell && typeof cell.v === 'string' && cell.v.startsWith('=')) { cell.t = 'f'; cell.f = cell.v.substring(1); delete cell.v; } } const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Inventory Data"); XLSX.writeFile(wb, generateReportFilename()); logTransaction('EXPORT REPORT', '-', 'Human-readable report exported.'); }
-        function printInventory() {
-            const dateValue = currentDateInput.value;
-            const [year, month, day] = dateValue.split('-');
-            const formattedDate = `${month} / ${day} / ${year}`;
-
-            const shiftValue = currentShiftSelect.value;
-            const shiftAbbr = shiftValue === 'Day Shift' ? 'D/S' : 'N/S';
-
-            const timeValue = currentTimeInput.value;
-            let [hours_val, minutes] = timeValue.split(':');
-            let hours = parseInt(hours_val);
-            const displayHours = hours % 12 || 12;
-            const ampm_str = hours >= 12 ? 'PM' : 'AM';
-            const formattedTime = `${displayHours}:${minutes}${ampm_str}`;
-
-            const includeColors = document.getElementById('includePrintColors').checked;
-            const includeBldgRackInPrint = includeBldgRackPrintCheckbox ? includeBldgRackPrintCheckbox.checked : false;
-            const isMainMovementActive = enableMovementFilter.checked;
-
-            let showMarking = document.getElementById('enableMovementMarking').checked;
-            let dateFrom = document.getElementById('printDateFrom').value;
-            let timeFrom = document.getElementById('printTimeFrom').value || "00:00";
-            let dateTo = document.getElementById('printDateTo').value;
-            let timeTo = document.getElementById('printTimeTo').value || "23:59";
-
-            if (isMainMovementActive) {
-                showMarking = true;
-                dateFrom = moveDateFrom.value;
-                timeFrom = moveTimeFrom.value || "00:00";
-                dateTo = moveDateTo.value;
-                timeTo = moveTimeTo.value || "23:59";
-            }
-
-            let movedItems = new Set();
-
-            if (showMarking && (dateFrom || dateTo)) {
-                let start = dateFrom ? new Date(`${dateFrom}T${timeFrom}`) : new Date(0);
-                let end = dateTo ? new Date(`${dateTo}T${timeTo}`) : new Date();
-
-                if (isNaN(start.getTime())) start = new Date(0);
-                if (isNaN(end.getTime())) end = new Date();
-
-                transactionHistory.forEach(log => {
-                    const logDate = new Date(log.timestamp);
-                    if (logDate >= start && logDate <= end) {
-                        if (log.action === 'BULK WITHDRAW') {
-                            const parts = log.details.split(', ');
-                            parts.forEach(p => {
-                                const codeMatch = p.match(/^(.*?) \(/);
-                                if (codeMatch) movedItems.add(codeMatch[1].trim());
-                            });
-                        } else if (log.code && log.code !== '-') {
-                            movedItems.add(log.code.trim());
-                        }
-                    }
-                });
-            }
-
-            const rows = Array.from(inventoryTableBody.querySelectorAll('tr'));
-            let tableRowsHtml = '';
-            let printCount = 0;
-            rows.forEach((row) => {
-                const code = row.dataset.code;
-                const stockingQty = row.dataset.stockingQty;
-                const remarks = JSON.parse(row.dataset.remarks || '[]');
-                const isMoved = showMarking && movedItems.has(code);
-
-                if (isMainMovementActive && !isMoved) return;
-
-                printCount++;
-
-                let breakdownHtml;
-                let printFormatted = formatStockingQty(stockingQty);
-                let printRemarks = remarks;
-                let printLocations = includeBldgRackInPrint ? JSON.parse(row.dataset.locations || '[]') : [];
-                if (isSimplifyBreakdownOn()) {
-                    const simplifiedPrint = simplifyBreakdownForDisplay(printFormatted, remarks, printLocations);
-                    printFormatted = simplifiedPrint.formatted;
-                    printRemarks = simplifiedPrint.remarks;
-                    printLocations = simplifiedPrint.locations;
-                }
-                if (includeColors) {
-                    breakdownHtml = formatStockingQtyAndRemarksForDisplay(printFormatted, printRemarks, printLocations, isShortenBreakdownOn());
-                } else {
-                    const shorten = isShortenBreakdownOn();
-                    breakdownHtml = getBreakdownParts(printFormatted).map((part, index) => {
-                        const trimmedPart = part.trim();
-                        let displayText = trimmedPart;
-                        if (shorten) {
-                            const multMatch = trimmedPart.match(/^([\d.,]+)\s*×/);
-                            if (multMatch) displayText = `(${multMatch[1]})`;
-                        }
-                        const loc = (printLocations[index] || '').trim();
-                        const locTag = loc ? `<span class="location-tag" title="Building/Rack">${escapeHtml(loc)}</span>` : '';
-                        return `${escapeHtml(displayText)}${locTag}`;
-                    }).join(' | ');
-                }
-
-                tableRowsHtml += `
-                    <tr>
-                        <td style="text-align: center; width: 30px;">${printCount}</td>
-                        ${showMarking ? `<td style="text-align: center; width: 30px; font-weight: bold; color: red;">${isMoved ? '★' : ''}</td>` : ''}
-                        <td>${escapeHtml(code)}</td>
-                        <td>${breakdownHtml}</td>
-                    </tr>
-                `;
-
-                if (isMainMovementActive) {
-                    tableRowsHtml += `
-                        <tr style="height: 30px;">
-                            <td></td>
-                            ${showMarking ? '<td></td>' : ''}
-                            <td></td>
-                            <td></td>
-                        </tr>
-                    `;
-                }
-            });
-
-            const printWindow = window.open('', '_blank');
-            const totalCols = showMarking ? 4 : 3;
-            printWindow.document.write(`
-                <html>
-                <head>
-                    <title>Print Inventory</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; margin: 10px 20px; color: #000; }
-                        .header-row td { border: none !important; padding: 0 !important; background-color: transparent !important; }
-                        .header { text-align: center; font-weight: bold; font-size: 1.1em; margin-bottom: 2px; }
-                        .info-line { display: flex; justify-content: space-between; font-weight: bold; border-top: 2px solid black; border-bottom: 2px solid black; padding: 2px 0; margin-bottom: 5px; font-size: 0.95em; }
-                        .section-title { color: red; text-decoration: underline; font-weight: bold; margin-top: 5px; margin-bottom: 5px; font-size: 1.05em; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 0px; }
-                        th, td { border: 1px solid black; padding: 2px 5px; text-align: left; font-size: 0.9em; }
-                        th { background-color: #d3d3d3; font-weight: bold; }
-                        tbody tr:nth-child(even) td { background-color: #e5e5e5 !important; }
-                        .footer { margin-top: 15px; font-weight: bold; font-size: 0.95em; }
-                        .color-green { color: green; font-weight: bold; }
-                        .color-orange { color: #B8960C; font-weight: bold; }
-                        .color-pink { color: #ff69b4; font-weight: bold; }
-                        .color-grey { color: grey; font-weight: normal; }
-                        .location-tag { color: #555; font-family: 'Courier New', monospace; font-size: 0.65em; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; vertical-align: super; margin-left: 1px; }
-                        @media print {
-                            @page { margin: 0.5cm; }
-                            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                            thead { display: table-header-group; }
-                        }
-                    </style>
-                </head>
-                <body>
-                    <table>
-                        <thead>
-                            <tr class="header-row">
-                                <td colspan="${totalCols}">
-                                    <div class="header">PACKAGING MATERIALS DAILY COUNT SHEET - COHIN (BLDG. 1&2)</div>
-                                    <div class="info-line">
-                                        <span>Date / Shift : ${formattedDate} ${shiftAbbr}</span>
-                                        <span>TIME COUNTED: ${formattedTime}</span>
-                                    </div>
-                                    <div class="section-title">LABELS & PLASTIC</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th style="text-align: center; width: 30px;">NO.</th>
-                                ${showMarking ? '<th style="text-align: center; width: 30px;">M</th>' : ''}
-                                <th>ITEM CODE</th>
-                                <th>ACTUAL COUNT BREAKDOWN</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${tableRowsHtml}
-                        </tbody>
-                    </table>
-                    ${document.getElementById('userName').value.trim() ? `
-                    <div class="footer">
-                        COUNTED BY: ${escapeHtml(document.getElementById('userName').value)}
-                    </div>` : ''}
-                    <script>
-                        window.onload = function() {
-                            window.print();
-                            window.onafterprint = function() { window.close(); };
-                        };
-                    <\/script>
-                </body>
-                </html>
-            `);
-            printWindow.document.close();
-            logTransaction('PRINT', '-', 'Inventory count sheet printed.');
-        }
-
-        function exportBackupFile() {
-            if (originalRowsOrder.length === 0) { showToast('No inventory data to backup.', 'error'); return; }
-
-            const wb = XLSX.utils.book_new();
-
-            // Sheet 1: Inventory
-            const inventoryData = [['MATERIAL_CODE', 'STOCKING_QTY', 'TOTAL_WITH_FORMULA', 'REMARKS_JSON', 'LOCATIONS_JSON']];
-            originalRowsOrder.forEach(row => {
-                const stockingQty = row.dataset.stockingQty;
-                const formula = convertToExcelFormula(stockingQty);
-                inventoryData.push([ row.dataset.code, stockingQty, formula, row.dataset.remarks, row.dataset.locations || '[]' ]);
-            });
-            const wsInventory = XLSX.utils.aoa_to_sheet(inventoryData);
-            for (let i = 1; i < inventoryData.length; i++) {
-                const cellAddress = 'C' + (i + 1);
-                const cell = wsInventory[cellAddress];
-                if (cell && typeof cell.v === 'string' && cell.v.startsWith('=')) {
-                    cell.t = 'f'; cell.f = cell.v.substring(1); delete cell.v;
-                }
-            }
-            XLSX.utils.book_append_sheet(wb, wsInventory, "Inventory_Backup");
-
-            // Sheet 2: Transaction History
-            const historyData = [['Timestamp', 'Action', 'Code', 'Details']];
-            transactionHistory.forEach(log => {
-                historyData.push([log.timestamp, log.action, log.code, log.details]);
-            });
-            const wsHistory = XLSX.utils.aoa_to_sheet(historyData);
-            XLSX.utils.book_append_sheet(wb, wsHistory, "Transaction_History");
-
-            // Sheet 3: Pallet Capacities
-            const capData = [['Material Code', 'Pallet Capacity']];
-            Object.keys(palletCapacities).forEach(code => {
-                capData.push([code, palletCapacities[code]]);
-            });
-            const wsCap = XLSX.utils.aoa_to_sheet(capData);
-            XLSX.utils.book_append_sheet(wb, wsCap, "Pallet_Capacities");
-
-            XLSX.writeFile(wb, generateBackupFilename());
-            logTransaction('BACKUP', '-', 'Full inventory state backed up.');
-        }
-        function importBackupFile(file) {
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-
-                    // Restore Inventory
-                    const invSheet = workbook.Sheets["Inventory_Backup"] || workbook.Sheets[workbook.SheetNames[0]];
-                    const invData = XLSX.utils.sheet_to_json(invSheet);
-
-                    if (!invData.length || !invData[0].hasOwnProperty('MATERIAL_CODE') || !invData[0].hasOwnProperty('STOCKING_QTY') || !invData[0].hasOwnProperty('REMARKS_JSON')) {
-                        showToast('Invalid Backup file format.', 'error');
-                        return;
-                    }
-
-                    if (!(await customConfirm("This will overwrite the current inventory and history. Continue?"))) { return; }
-
-                    // 1. Restore Inventory
-                    inventoryTableBody.innerHTML = '';
-                    originalRowsOrder = [];
-                    rowsByCode = new Map();
-                    invData.forEach(item => {
-                        let remarksArray = [];
-                        try { remarksArray = JSON.parse(item.REMARKS_JSON); }
-                        catch (err) { console.error(`Could not parse remarks for ${item.MATERIAL_CODE}:`, item.REMARKS_JSON); }
-                        let locationsArray = [];
-                        if (item.LOCATIONS_JSON) {
-                            try { locationsArray = JSON.parse(item.LOCATIONS_JSON); }
-                            catch (err) { console.error(`Could not parse locations for ${item.MATERIAL_CODE}:`, item.LOCATIONS_JSON); }
-                        }
-                        renderRow({ code: item.MATERIAL_CODE, stockingQty: String(item.STOCKING_QTY || ''), remarks: Array.isArray(remarksArray) ? remarksArray : [], locations: Array.isArray(locationsArray) ? locationsArray : [] }, false);
-                    });
-                    applyFiltersAndSort();
-                    saveInventoryData();
-
-                    // 2. Restore Transaction History
-                    const histSheet = workbook.Sheets["Transaction_History"];
-                    if (histSheet) {
-                        const histData = XLSX.utils.sheet_to_json(histSheet);
-                        transactionHistory = histData.map(h => ({
-                            timestamp: h.Timestamp,
-                            action: h.Action,
-                            code: h.Code,
-                            details: h.Details
-                        }));
-                        renderHistoryLog();
-                        saveHistoryData();
-                    }
-
-                    // 3. Restore Pallet Capacities
-                    const capSheet = workbook.Sheets["Pallet_Capacities"];
-                    if (capSheet) {
-                        const capData = XLSX.utils.sheet_to_json(capSheet);
-                        palletCapacities = {};
-                        capData.forEach(c => {
-                            palletCapacities[c['Material Code']] = c['Pallet Capacity'];
-                        });
-                        saveDataToAPI(['palletCapacities']);
-                    }
-
-                    logTransaction('RESTORE', '-', `Full inventory state restored from ${file.name}.`);
-                } catch (err) { showToast('Error reading the backup file.', 'error'); console.error(err); }
-            };
-            reader.readAsArrayBuffer(file);
-        }
-        function populateBulkClearList(itemsToDisplay = originalRowsOrder) { bulkClearList.innerHTML = ''; if (itemsToDisplay.length === 0) { bulkClearList.innerHTML = '<p style="text-align:center; color:grey;">No items match the filter.</p>'; return; } itemsToDisplay.forEach((row, index) => { const itemCode = row.dataset.code; const totalQty = row.cells[2].textContent; const itemDiv = document.createElement('div'); itemDiv.className = 'bulk-clear-item'; const infoDiv = document.createElement('div'); infoDiv.className = 'item-info'; const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.id = `bulk-clear-check-${index}`; checkbox.value = itemCode; const label = document.createElement('label'); label.htmlFor = `bulk-clear-check-${index}`; label.textContent = itemCode; const qtySpan = document.createElement('span'); qtySpan.className = 'item-qty'; qtySpan.textContent = `Total: ${totalQty}`; infoDiv.append(checkbox, label); itemDiv.append(infoDiv, qtySpan); bulkClearList.appendChild(itemDiv); }); }
-        function applyBulkClearFilters() { const itemType = document.getElementById('itemTypeFilter_bulk').value; const remarkType = document.getElementById('remarksFilter_bulk').value; const dataType = dataPresenceFilter_bulk.value; const filteredRows = originalRowsOrder.filter(row => { const code = row.dataset.code.toUpperCase(); const remarks = JSON.parse(row.dataset.remarks || '[]').map(r => r.toLowerCase().trim()); const qtyText = row.cells[1].textContent.trim(); const passesItem = itemType === 'ALL' || (itemType === 'LBL' && code.startsWith('LBL')) || (itemType === 'CTN' && code.startsWith('CTN')) || (itemType === 'PLASTIC' && (code.startsWith('BAG') || code.includes('BUNDLE'))) || (itemType === 'OTHERS' && !/^(LBL|CTN|BAG)|BUNDLE/.test(code)); const passesData = dataType === 'ALL' || (dataType === 'WITH_DATA' && qtyText) || (dataType === 'WITHOUT_DATA' && !qtyText); let passesRemark = false; const hasHold = remarks.some(r => r.startsWith('hold')); const hasApproved = remarks.some(r => r.startsWith('approve') || r.startsWith('approved')); const hasOld = remarks.some(r => r.startsWith('first out') || r.startsWith('old')); const hasAnyRemark = remarks.some(r => r !== ''); switch (remarkType) { case 'ALL': passesRemark = true; break; case 'HOLD': passesRemark = hasHold; break; case 'APPROVED': passesRemark = hasApproved; break; case 'FIRSTOUT_OLD': passesRemark = hasOld; break; case 'NO_REMARK': passesRemark = !hasAnyRemark; break; case 'OTHER_REMARKS': passesRemark = hasAnyRemark && !hasHold && !hasApproved && !hasOld; break; } return passesItem && passesRemark && passesData; }); populateBulkClearList(filteredRows); }
-        function handleFileSelect(file) { if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { loadedWorkbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' }); excelSheetSelect.innerHTML = ''; loadedWorkbook.SheetNames.forEach(name => { const opt = document.createElement('option'); opt.value = name; opt.textContent = name; excelSheetSelect.appendChild(opt); }); handleSheetChange(); importDataModal.style.display = 'block'; importErrorMessageDiv.textContent = ''; } catch (err) { importErrorMessageDiv.textContent = 'Error reading file.'; } }; reader.readAsArrayBuffer(file); }
-        function handleSheetChange() { const sheetName = excelSheetSelect.value; const worksheet = loadedWorkbook.Sheets[sheetName]; const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); stockingQtyDateSelectModal.innerHTML = '<option value="">Do not import</option>'; if (data.length >= STOCKING_QTY_ROW_EXCEL_INDEX) { const headerRow = data[5] || []; let counter = 1; headerRow.forEach((h, i) => { if (typeof h === 'string' && h.trim().toLowerCase().includes('stocking qty')) { stockingQtyDateSelectModal.innerHTML += `<option value="${i}">Stocking Qty ${counter++}</option>`; } }); } }
-        const standardRemarksList = [
-            'approved',
-            'approved temp specs',
-            'approved new declaration',
-            'old',
-            'first out',
-            'hold',
-            'hold temp specs',
-            'hold new declaration'
-        ];
-
-        function buildClickablePreviewParts(rawValue, remarks, locations) {
-            const formattedBreakdown = formatStockingQty(rawValue);
-            const parts = getBreakdownParts(formattedBreakdown);
-            if (!parts.length || (parts.length === 1 && !parts[0])) return [];
-            remarks = remarks || [];
-            locations = locations || [];
-
-            let groups;
-            if (isSimplifyBreakdownOn()) {
-                groups = [];
-                const keyIndexMap = new Map();
-                parts.forEach((part, idx) => {
-                    const trimmed = part.trim();
-                    const m = trimmed.match(/^([\d.,]+)\s*×\s*([\d.,]+)$/);
-                    if (m) {
-                        const multiplier = m[1], multiplicand = m[2];
-                        if (keyIndexMap.has(multiplicand)) {
-                            const g = groups[keyIndexMap.get(multiplicand)];
-                            g.multipliers.push(multiplier);
-                            g.indices.push(idx);
-                        } else {
-                            keyIndexMap.set(multiplicand, groups.length);
-                            groups.push({ type: 'mult', multiplicand, multipliers: [multiplier], indices: [idx] });
-                        }
-                    } else {
-                        groups.push({ type: 'plain', raw: trimmed, indices: [idx] });
-                    }
-                });
-            } else {
-                groups = parts.map((part, idx) => ({ type: 'plain', raw: part.trim(), indices: [idx] }));
-            }
-
-            const shorten = isShortenBreakdownOn();
-            return groups.map(g => {
-                let displayText;
-                if (g.type === 'plain') {
-                    displayText = g.raw;
-                    if (shorten) {
-                        const multMatch = displayText.match(/^([\d.,]+)\s*×/);
-                        if (multMatch) displayText = `(${multMatch[1]})`;
-                    }
-                } else if (g.multipliers.length > 1) {
-                    displayText = shorten ? `(${g.multipliers.join('+')})` : `(${g.multipliers.join(' + ')}) × ${g.multiplicand}`;
-                } else {
-                    displayText = shorten ? `(${g.multipliers[0]})` : `${g.multipliers[0]}×${g.multiplicand}`;
-                }
-                const firstIdx = g.indices[0];
-                const remark = remarks[firstIdx] || '';
-                const colorClass = getColorClassForRemark(remark);
-                const loc = (locations[firstIdx] || '').trim();
-                return { text: displayText, colorClass, loc, indices: g.indices };
-            });
-        }
-
-        function updateEditBreakdownPreview() {
-            if (!editBreakdownPreview) return;
-            const rawValue = editBreakdownInput.value;
-            const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
-            const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
-            const partsData = buildClickablePreviewParts(rawValue, currentRemarks, currentLocations);
-            if (!partsData.length) {
-                editBreakdownPreview.innerHTML = '<span style="color: var(--ink-soft);">No stock recorded</span>';
-                return;
-            }
-            editBreakdownPreview.innerHTML = partsData.map(p => {
-                const locTag = p.loc ? `<span class="location-tag">${escapeHtml(p.loc)}</span>` : '';
-                return `<span class="${p.colorClass} preview-part" data-indices="${p.indices.join(',')}" title="I-click para tumuon sa Remarks/Bldg-Rack ng part na ito">${escapeHtml(p.text)}</span>${locTag}`;
-            }).join(' <span class="preview-sep">|</span> ');
-        }
-
-        editBreakdownPreview.addEventListener('click', function(event) {
-            const target = event.target.closest('.preview-part');
-            if (!target) return;
-            const indices = target.dataset.indices.split(',').map(Number);
-
-            document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight'));
-
-            const remarkInputs = dynamicRemarksContainer.querySelectorAll('.remark-part-input');
-            const locationInputs = dynamicRemarksContainer.querySelectorAll('.location-part-input');
-            let firstGroup = null;
-
-            indices.forEach(idx => {
-                const remarkGroup = remarkInputs[idx] ? remarkInputs[idx].closest('.item-input') : null;
-                const locationGroup = locationInputs[idx] ? locationInputs[idx].closest('.item-input') : null;
-                if (remarkGroup) remarkGroup.classList.add('field-flash-highlight');
-                if (locationGroup) locationGroup.classList.add('field-flash-highlight');
-                if (!firstGroup) firstGroup = remarkGroup;
-            });
-
-            if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.add('stocking-qty-floating');
-
-            if (firstGroup) {
-                firstGroup.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-
-            setTimeout(() => {
-                document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight'));
-            }, 2200);
-        });
-
-        // Aligns an old list of breakdown parts against a new one (after the user
-        // added/removed/reordered parts in the raw text) so remarks/bldg-rack tags
-        // stay attached to the correct quantity instead of just shifting by position.
-        // Returns an array the same length as newParts, where each entry is either
-        // the matching index into oldParts (tag carries over) or -1 (new/no match,
-        // blank tag).
-        function diffBreakdownParts(oldParts, newParts) {
-            const n = oldParts.length, m = newParts.length;
-            const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
-            for (let i = 1; i <= n; i++) {
-                for (let j = 1; j <= m; j++) {
-                    dp[i][j] = oldParts[i - 1] === newParts[j - 1]
-                        ? dp[i - 1][j - 1] + 1
-                        : Math.max(dp[i - 1][j], dp[i][j - 1]);
-                }
-            }
-            const mapping = new Array(m).fill(-1);
-            let i = n, j = m;
-            while (i > 0 && j > 0) {
-                if (oldParts[i - 1] === newParts[j - 1]) {
-                    mapping[j - 1] = i - 1;
-                    i--; j--;
-                } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-                    i--;
-                } else {
-                    j--;
-                }
-            }
-            return mapping;
-        }
-
-        // After exact-match pairing, pair any still-unmatched old/new parts by their
-        // leftover order (handles a value simply being edited, e.g. 12800 -> 10000).
-        // Any old index in excludedIndices (explicitly marked 🗑 by the user) is
-        // removed from the leftover pool first, so it's never mistaken for the
-        // source of an edited value elsewhere in the breakdown.
-        function diffBreakdownPartsWithFallback(oldParts, newParts, excludedIndices) {
-            const mapping = diffBreakdownParts(oldParts, newParts);
-            const usedOld = new Set(mapping.filter(x => x !== -1));
-            const leftoverOldIdx = [];
-            for (let i = 0; i < oldParts.length; i++) {
-                if (!usedOld.has(i) && !excludedIndices.has(i)) leftoverOldIdx.push(i);
-            }
-            let li = 0;
-            for (let j = 0; j < mapping.length; j++) {
-                if (mapping[j] === -1 && li < leftoverOldIdx.length) {
-                    mapping[j] = leftoverOldIdx[li];
-                    li++;
-                }
-            }
-            return mapping;
-        }
-
-        function generateRemarksInputs(numParts, remarks, locations) {
-            dynamicRemarksContainer.innerHTML = '';
-            locations = locations || [];
-            for (let i = 0; i < numParts; i++) {
-                const inputGroup = document.createElement('div');
-                inputGroup.className = 'item-input';
-                const label = document.createElement('label');
-                label.textContent = `Remarks for Part ${i + 1}:`;
-
-                const wrapper = document.createElement('div');
-                wrapper.className = 'autocomplete-wrapper';
-
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = remarks[i] || '';
-                input.classList.add('remark-part-input');
-
-                const dropdown = document.createElement('div');
-                dropdown.className = 'autocomplete-dropdown';
-
-                wrapper.append(input, dropdown);
-                inputGroup.append(label, wrapper);
-                dynamicRemarksContainer.appendChild(inputGroup);
-
-                const locGroup = document.createElement('div');
-                locGroup.className = 'item-input building-rack-group';
-                const locLabelRow = document.createElement('div');
-                locLabelRow.className = 'location-label-row';
-                const locLabel = document.createElement('label');
-                locLabel.innerHTML = `<i class="fas fa-warehouse"></i> Building/Rack for Part ${i + 1}:`;
-                const markDeleteBtn = document.createElement('button');
-                markDeleteBtn.type = 'button';
-                markDeleteBtn.className = 'mark-delete-btn';
-                markDeleteBtn.title = 'Mark this part as being deleted — click BEFORE you remove its number from the Stocking Qty text above, so the app doesn\'t mistake it for an edited value elsewhere in the breakdown.';
-                markDeleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
-                markDeleteBtn.dataset.partIndex = i;
-                if (markedForDeletionIndices.has(i)) markDeleteBtn.classList.add('active');
-                markDeleteBtn.addEventListener('click', () => {
-                    if (markedForDeletionIndices.has(i)) {
-                        markedForDeletionIndices.delete(i);
-                        markDeleteBtn.classList.remove('active');
-                    } else {
-                        markedForDeletionIndices.add(i);
-                        markDeleteBtn.classList.add('active');
-                    }
-                });
-                locLabelRow.append(locLabel, markDeleteBtn);
-                const locInput = document.createElement('input');
-                locInput.type = 'text';
-                locInput.placeholder = 'e.g. Bldg B - Rack 14';
-                locInput.value = locations[i] || '';
-                locInput.classList.add('location-part-input');
-                locGroup.append(locLabelRow, locInput);
-                dynamicRemarksContainer.appendChild(locGroup);
-
-                let activeIndex = -1;
-
-                const updateDropdown = () => {
-                    const val = input.value;
-                    const trimmedVal = val.trimStart();
-                    if (!trimmedVal) {
-                        dropdown.style.display = 'none';
-                        return;
-                    }
-
-                    const valWords = trimmedVal.toLowerCase().split(/\s+/);
-                    let maxMatchCount = 0;
-                    const matchGroups = [];
-
-                    standardRemarksList.forEach(stdRem => {
-                        const stdWords = stdRem.split(/\s+/);
-                        let matchCount = 0;
-
-                        for (let i = 0; i < valWords.length; i++) {
-                            if (i >= stdWords.length) break;
-
-                            if (stdWords[i] === valWords[i]) {
-                                matchCount++;
-                            } else if (stdWords[i].startsWith(valWords[i])) {
-                                matchCount++;
-                                break;
-                            } else {
-                                break;
-                            }
-                        }
-
-                        if (matchCount > 0) {
-                            maxMatchCount = Math.max(maxMatchCount, matchCount);
-                            if (!matchGroups[matchCount]) matchGroups[matchCount] = [];
-                            matchGroups[matchCount].push(stdRem);
-                        }
-                    });
-
-                    dropdown.innerHTML = '';
-                    if (maxMatchCount === 0) {
-                        dropdown.style.display = 'none';
-                        return;
-                    }
-
-                    const regex = new RegExp(`^(\\s*(?:\\S+\\s+){${maxMatchCount - 1}}\\S+)(.*)$`, 'i');
-                    const matchResult = val.match(regex);
-                    let remainder = '';
-                    if (matchResult) {
-                        remainder = matchResult[2];
-                    }
-
-                    let matches = matchGroups[maxMatchCount];
-
-                    matches.forEach((match, index) => {
-                        const opt = document.createElement('div');
-                        opt.className = 'autocomplete-option';
-                        opt.textContent = match + remainder;
-                        if (index === 0) {
-                            opt.classList.add('active'); // highlight top item by default
-                        }
-
-                        opt.addEventListener('mousedown', (e) => {
-                            e.preventDefault(); // prevent blur
-                            input.value = opt.textContent;
-                            dropdown.style.display = 'none';
-                            updateEditBreakdownPreview();
-                            saveBreakdownButton.focus(); // Move focus to save button so the next Enter saves the form
-                        });
-                        dropdown.appendChild(opt);
-                    });
-
-                    activeIndex = 0;
-                    dropdown.style.display = 'block';
-                };
-
-                input.addEventListener('input', updateDropdown);
-
-                input.addEventListener('focus', () => {
-                    if (input.value.trim() !== '') updateDropdown();
-                });
-
-                input.addEventListener('blur', () => {
-                    setTimeout(() => dropdown.style.display = 'none', 100);
-                });
-
-                input.addEventListener('keydown', (e) => {
-                    const options = dropdown.querySelectorAll('.autocomplete-option');
-                    if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        if (options.length > 0) {
-                            if (activeIndex < options.length - 1) activeIndex++;
-                            options.forEach((opt, idx) => opt.classList.toggle('active', idx === activeIndex));
-                            options[activeIndex].scrollIntoView({ block: 'nearest' });
-                        }
-                    } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        if (options.length > 0) {
-                            if (activeIndex > 0) activeIndex--;
-                            options.forEach((opt, idx) => opt.classList.toggle('active', idx === activeIndex));
-                            options[activeIndex].scrollIntoView({ block: 'nearest' });
-                        }
-                    } else if (e.key === 'Enter') {
-                        if (dropdown.style.display === 'block' && options.length > 0 && activeIndex > -1) {
-                            e.preventDefault();
-                            e.stopPropagation(); // Prevent modal's global Enter listener from catching this and saving
-                            input.value = options[activeIndex].textContent;
-                            dropdown.style.display = 'none';
-                            updateEditBreakdownPreview();
-                            saveBreakdownButton.focus(); // Move focus to save button so the next Enter saves the form
-                        }
-                        // If dropdown is NOT open, we do NOT prevent default or stop propagation.
-                        // The event bubbles up to editBreakdownModal.addEventListener('keydown')
-                        // which natively clicks saveBreakdownButton to save the form.
-                    } else if (e.key === 'Tab') {
-                        dropdown.style.display = 'none';
-                    }
-                });
-            }
-            applyBuildingRackVisibility();
-        };
-
-        function applyBuildingRackVisibility() {
-            const show = showBuildingRackCheckbox ? showBuildingRackCheckbox.checked : true;
-            document.querySelectorAll('.building-rack-group').forEach(el => {
-                el.style.display = show ? '' : 'none';
-            });
-        }
-
-        if (showBuildingRackCheckbox) {
-            const savedShowBuildingRack = localStorage.getItem('showBuildingRack');
-            showBuildingRackCheckbox.checked = savedShowBuildingRack === null ? true : savedShowBuildingRack === 'true';
-            showBuildingRackCheckbox.addEventListener('change', () => {
-                localStorage.setItem('showBuildingRack', showBuildingRackCheckbox.checked);
-                applyBuildingRackVisibility();
-            });
-        }
-
-        if (includeBldgRackPrintCheckbox) {
-            const savedIncludeBldgRackPrint = localStorage.getItem('includeBldgRackPrint');
-            includeBldgRackPrintCheckbox.checked = savedIncludeBldgRackPrint === 'true';
-            includeBldgRackPrintCheckbox.addEventListener('change', () => {
-                localStorage.setItem('includeBldgRackPrint', includeBldgRackPrintCheckbox.checked);
-            });
-        }
-
-        if (shortenBreakdownCheckbox) {
-            const savedShortenBreakdown = localStorage.getItem('shortenBreakdown');
-            shortenBreakdownCheckbox.checked = savedShortenBreakdown === 'true';
-            shortenBreakdownCheckbox.addEventListener('change', () => {
-                localStorage.setItem('shortenBreakdown', shortenBreakdownCheckbox.checked);
-                refreshAllBreakdownDisplays();
-            });
-        }
-
-        if (simplifyBreakdownCheckbox) {
-            const savedSimplifyBreakdown = localStorage.getItem('simplifyBreakdown');
-            simplifyBreakdownCheckbox.checked = savedSimplifyBreakdown === 'true';
-            simplifyBreakdownCheckbox.addEventListener('change', () => {
-                localStorage.setItem('simplifyBreakdown', simplifyBreakdownCheckbox.checked);
-                refreshAllBreakdownDisplays();
-            });
-        }
-
-        function getWithdrawableStock(row) { const stockingQty = row.dataset.stockingQty; const remarks = JSON.parse(row.dataset.remarks || '[]'); const parts = getBreakdownParts(formatStockingQty(stockingQty)); let total = 0; parts.forEach((part, index) => { const remark = (remarks[index] || '').toLowerCase(); if (!remark.startsWith('hold')) { total += calculateSingleStockingQtyTotal(part); } }); return total; };
-
-        function performWithdrawal(materialCode, withdrawAmount) {
-            const targetRow = rowsByCode.get(materialCode);
-            if (!targetRow) return { success: false, message: `Item code ${materialCode} not found.` };
-
-            const totalWithdrawable = getWithdrawableStock(targetRow);
-            if (withdrawAmount > totalWithdrawable) {
-                return { success: false, message: `Insufficient stock for ${materialCode}.` };
-            }
-
-            const oldRemarks = JSON.parse(targetRow.dataset.remarks || '[]');
-            const oldLocations = JSON.parse(targetRow.dataset.locations || '[]');
-            const oldParts = getBreakdownParts(formatStockingQty(targetRow.dataset.stockingQty));
-
-            let partsWithDetails = oldParts.map((part, index) => {
-                const remark = (oldRemarks[index] || '');
-                const location = (oldLocations[index] || '');
-                let date = null;
-                const dateMatch = remark.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-                if (dateMatch) date = new Date(`${dateMatch[3]}-${dateMatch[1]}-${dateMatch[2]}`);
-                return {
-                    value: part,
-                    qty: calculateSingleStockingQtyTotal(part),
-                    remark: remark,
-                    location: location,
-                    lowerRemark: remark.toLowerCase(),
-                    date: date,
-                    originalIndex: index
-                };
-            });
-
-            const getPriority = (remark) => {
-                const lower = remark.toLowerCase();
-                if (lower.startsWith('old') || lower.startsWith('first out')) return 1;
-                if (lower.startsWith('approved')) return 2;
-                return 3;
-            };
-
-            const withdrawableParts = partsWithDetails.filter(p => !p.lowerRemark.startsWith('hold'));
-
-            const standardSort = (parts) => {
-                return [...parts].sort((a, b) => {
-                    const prioA = getPriority(a.lowerRemark);
-                    const prioB = getPriority(b.lowerRemark);
-                    if (prioA !== prioB) return prioA - prioB;
-                    if (a.date && b.date) { if (a.date.getTime() !== b.date.getTime()) return a.date - b.date; }
-                    else if (a.date) return -1; else if (b.date) return 1;
-                    return a.originalIndex - b.originalIndex;
-                });
-            };
-
-            const baseSorted = standardSort(withdrawableParts);
-
-            let bundleSize = 0;
-            if (baseSorted.length > 0) {
-                const highestPrio = getPriority(baseSorted[0].lowerRemark);
-                const firstBundle = baseSorted.find(p => getPriority(p.lowerRemark) === highestPrio && /[*xX×]/.test(p.value));
-                if (firstBundle) {
-                    const bParts = firstBundle.value.split(/[*xX×]/);
-                    bundleSize = parseFloat(bParts[bParts.length - 1].trim());
-                }
-            }
-
-            const strictSort = (parts, amount) => {
-                const isBundleMatch = bundleSize > 0 && amount % bundleSize === 0;
-                return [...parts].sort((a, b) => {
-                    const prioA = getPriority(a.lowerRemark);
-                    const prioB = getPriority(b.lowerRemark);
-                    if (prioA !== prioB) return prioA - prioB;
-
-                    if (a.date && b.date) { if (a.date.getTime() !== b.date.getTime()) return a.date - b.date; }
-                    else if (a.date) return -1; else if (b.date) return 1;
-
-                    const isMultA = /[*xX×]/.test(a.value);
-                    const isMultB = /[*xX×]/.test(b.value);
-                    if (isMultA !== isMultB) {
-                        if (isBundleMatch) return isMultA ? -1 : 1;
-                        return isMultA ? 1 : -1;
-                    }
-
-                    if (a.qty !== b.qty) return a.qty - b.qty;
-                    return a.originalIndex - b.originalIndex;
-                });
-            };
-
-            const deductionOrder = strictSort(withdrawableParts, withdrawAmount);
-            let remaining = withdrawAmount;
-
-            for (const part of deductionOrder) {
-                if (remaining <= 0) break;
-                if (part.qty <= 0) continue;
-
-                if (remaining >= part.qty) {
-                    remaining -= part.qty;
-                    part.value = '';
-                    part.qty = 0;
-                } else {
-                    const toDeduct = remaining;
-                    remaining = 0;
-                    if (/[*xX×]/.test(part.value)) {
-                        const parts = part.value.split(/[*xX×]/);
-                        const multiplicand = parseFloat(parts[parts.length - 1].trim());
-                        let newTotal = part.qty - toDeduct;
-                        const newM = Math.floor(newTotal / multiplicand);
-                        const rem = newTotal % multiplicand;
-                        let newVal = "";
-                        if (newM > 0) newVal = `${newM}×${multiplicand}`;
-                        if (rem > 0) newVal = (newVal ? newVal + " | " : "") + String(rem);
-                        part.value = newVal;
-                        part.qty = newTotal;
-                    } else {
-                        part.qty -= toDeduct;
-                        part.value = String(part.qty);
-                    }
-                }
-            }
-
-            const remainingWithdrawable = partsWithDetails.filter(p => p.value !== '' && !p.lowerRemark.startsWith('hold'));
-            const hasOldItems = remainingWithdrawable.some(p => getPriority(p.lowerRemark) === 1);
-            if (!hasOldItems) {
-                const approvedItems = remainingWithdrawable.filter(p => getPriority(p.lowerRemark) === 2);
-                if (approvedItems.length > 0) {
-                    const oldestApproved = standardSort(approvedItems)[0];
-                    oldestApproved.remark = oldestApproved.remark.replace(/approved/i, 'OLD').replace(/approve/i, 'OLD');
-                    if (!oldestApproved.remark.toUpperCase().includes('OLD')) {
-                        oldestApproved.remark = 'OLD ' + oldestApproved.remark;
-                    }
-                }
-            }
-
-            const finalParts = partsWithDetails.flatMap(p => {
-                if (p.value === '') return [];
-                if (p.value.includes(' | ')) {
-                    return p.value.split(' | ').map(subVal => ({...p, value: subVal}));
-                }
-                return [p];
-            }).sort((a, b) => a.originalIndex - b.originalIndex);
-
-            const simplified = finalParts.map(p => {
-                let val = p.value.trim();
-                if (val.startsWith('1×')) return val.split('×')[1].trim();
-                return val;
-            });
-
-            targetRow.dataset.stockingQty = simplified.join(' | ');
-            targetRow.dataset.remarks = JSON.stringify(finalParts.map(p => p.remark));
-            targetRow.dataset.locations = JSON.stringify(finalParts.map(p => p.location || ''));
-
-            const finalBreakdown = formatStockingQty(targetRow.dataset.stockingQty);
-            const finalTotal = calculateSingleStockingQtyTotal(finalBreakdown);
-            targetRow.cells[1].innerHTML = renderBreakdownCellHtml(targetRow.dataset.stockingQty, JSON.parse(targetRow.dataset.remarks), JSON.parse(targetRow.dataset.locations));
-            targetRow.cells[2].textContent = finalTotal.toLocaleString();
-            targetRow.cells[3].textContent = JSON.parse(targetRow.dataset.remarks).filter(r => r).join(' | ');
-
-            return { success: true, message: `Successfully withdrew ${withdrawAmount} from ${materialCode}.` };
-        }
-
-        function renderBulkList(){
-            if(!pendingBulkDeliveries.length){
-                bulkDeliveryList.innerHTML='<p class="bulk-list-empty-text">No items added.</p>';
-                return;
-            }
-            bulkDeliveryList.innerHTML = pendingBulkDeliveries.map((i,idx)=>`
-                <div class="bulk-pending-card">
-                    <div class="bulk-pending-card-header">
-                        <input type="text" value="${escapeHtml(i.code)}" oninput="updatePendingItem(${idx}, 'code', this.value)" placeholder="Material Code">
-                        <button class="bulk-pending-card-remove" onclick="removeBulkDeliveryItem(${idx})"><i class="fas fa-times"></i></button>
-                    </div>
-                    <div class="bulk-pending-card-row">
-                        <div class="bulk-pending-card-field">
-                            <label>Qty:</label>
-                            <input type="text" value="${escapeHtml(i.qty)}" oninput="updatePendingItem(${idx}, 'qty', this.value)">
-                        </div>
-                        <div class="bulk-pending-card-field" style="flex: 2;">
-                            <label>Remarks:</label>
-                            <input type="text" value="${escapeHtml(i.remarks)}" oninput="updatePendingItem(${idx}, 'remarks', this.value)">
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        window.updatePendingItem = function(idx, key, value) {
-            pendingBulkDeliveries[idx][key] = value;
-        };
-
-        window.removeBulkDeliveryItem = function(idx) {
-            pendingBulkDeliveries.splice(idx,1);
-            renderBulkList();
-        }
-
-        let bulkDeliveryComboboxOptions = [];
-        openBulkDeliveriesModalButton.addEventListener('click', () => {
-            checkAccess(() => {
-                const sortedRows = [...originalRowsOrder].sort((a, b) => {
-                    const stockA = calculateSingleStockingQtyTotal(formatStockingQty(a.dataset.stockingQty));
-                    const stockB = calculateSingleStockingQtyTotal(formatStockingQty(b.dataset.stockingQty));
-
-                    if (stockA > 0 && stockB <= 0) return -1;
-                    if (stockA <= 0 && stockB > 0) return 1;
-
-                    return (a.dataset.code || '').localeCompare(b.dataset.code || '');
-                });
-                bulkDeliveryComboboxOptions = sortedRows.map(row => {
-                    const code = row.dataset.code;
-                    const totalStock = calculateSingleStockingQtyTotal(formatStockingQty(row.dataset.stockingQty));
-                    const hasStock = totalStock > 0;
-                    return { value: code, label: hasStock ? `🟢 (${totalStock.toLocaleString()})` : '🔴 (Empty)' };
-                });
-
-                pendingBulkDeliveries = [];
-                bulkDelItemSearch.value = '';
-                bulkDelPalletCapacity.value = '';
-                bulkDelQtyInput.value = '';
-                bulkDelSharedRemarks.value = '';
-                const now = new Date();
-                const year = now.getFullYear();
-                const month = String(now.getMonth() + 1).padStart(2, '0');
-                const day = String(now.getDate()).padStart(2, '0');
-                bulkDelSharedDate.value = `${year}-${month}-${day}`;
-                renderBulkList();
-
-                bulkDeliveriesModal.style.display = 'block';
-                setTimeout(() => bulkDelSharedRemarks.focus(), 100);
-            });
-        });
-
-        const bulkDeliveryInputs = [
-            bulkDelSharedRemarks,
-            bulkDelSharedDate,
-            bulkDelItemSearch,
-            bulkDelPalletCapacity,
-            bulkDelQtyInput
-        ];
-
-        bulkDeliveryInputs.forEach((input, index) => {
-            input.addEventListener('keydown', (e) => {
-                // Let the custom combobox handle arrow-key navigation of its own suggestion list
-                if ((input === bulkDelItemSearch || input === bulkDelSharedRemarks) && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-                    return;
-                }
-
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    const nextInput = bulkDeliveryInputs[index + 1];
-                    if (nextInput) {
-                        nextInput.focus();
-                    }
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    const prevInput = bulkDeliveryInputs[index - 1];
-                    if (prevInput) {
-                        prevInput.focus();
-                    }
-                }
-            });
-        });
-
-        // Autocomplete and focus logic for Shared Remarks Datalist
-        bulkDelSharedRemarks.addEventListener('input', (e) => {
-            if (e.inputType === 'insertReplacementText') {
-                setTimeout(() => bulkDelSharedDate.focus(), 10);
-            }
-        });
-
-        bulkDelSharedRemarks.addEventListener('change', () => {
-            const typedValue = bulkDelSharedRemarks.value.trim().toLowerCase();
-            const options = Array.from(document.getElementById('sharedRemarksDatalist').options);
-            const exactMatch = options.some(opt => opt.value.toLowerCase() === typedValue);
-            if (exactMatch) {
-                setTimeout(() => bulkDelSharedDate.focus(), 10);
-            }
-        });
-
-        bulkDelSharedRemarks.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === 'Tab') {
-                if (e.key === 'Tab') e.preventDefault();
-                setTimeout(() => {
-                    if (document.activeElement === bulkDelSharedDate) return;
-
-                    const typedValue = bulkDelSharedRemarks.value.trim().toLowerCase();
-                    if (typedValue) {
-                        let exactMatch = false;
-                        let firstMatch = null;
-                        const options = Array.from(document.getElementById('sharedRemarksDatalist').options);
-                        for (const option of options) {
-                            const optionValue = option.value.toLowerCase();
-                            if (optionValue === typedValue) {
-                                exactMatch = true;
-                                break;
-                            }
-                            if (!firstMatch && optionValue.includes(typedValue)) {
-                                firstMatch = option.value;
-                            }
-                        }
-                        if (exactMatch) {
-                            bulkDelSharedDate.focus();
-                            return;
-                        }
-                        if (!exactMatch && firstMatch) {
-                            bulkDelSharedRemarks.value = firstMatch;
-                            bulkDelSharedDate.focus();
-                        }
-                    } else {
-                        bulkDelSharedDate.focus();
-                    }
-                }, 150);
-            }
-        });
-
-        function handleBulkDelFocusShift() {
-            setTimeout(() => {
-                const capacity = bulkDelPalletCapacity.value;
-                if (capacity && capacity.trim() !== '') {
-                    bulkDelQtyInput.focus();
-                } else {
-                    bulkDelPalletCapacity.focus();
-                }
-            }, 10);
-        }
-
-        function autofillBulkDeliveryCapacity(code) {
-            if (!code) return;
-            const row = rowsByCode.get(code);
-
-            if (palletCapacities[code]) {
-                bulkDelPalletCapacity.value = palletCapacities[code];
-            } else {
-                const inferred = row ? inferCapacity(row.dataset.stockingQty) : null;
-                if (inferred) {
-                    bulkDelPalletCapacity.value = inferred;
-                } else if (row && row.dataset.remarks) {
-                    bulkDelPalletCapacity.value = '';
-                    try {
-                        const remarksArr = JSON.parse(row.dataset.remarks);
-                        if (remarksArr.length > 0) {
-                            const firstRemark = remarksArr[0];
-                            const match = firstRemark.match(/(\d+)\s*PCS\/PLT/i);
-                            if (match && match[1]) {
-                                bulkDelPalletCapacity.value = match[1];
-                                palletCapacities[code] = match[1];
-                                saveDataToAPI(['palletCapacities'], {}, null, { changedCode: code });
-                            }
-                        }
-                    } catch (err) {
-                        console.error("Error parsing remarks for pallet capacity auto-fill", err);
-                    }
-                } else {
-                    bulkDelPalletCapacity.value = '';
-                }
-            }
-        }
-
-        const bulkDeliveryCombobox = attachSearchableCombobox(bulkDelItemSearch, {
-            getOptions: () => bulkDeliveryComboboxOptions,
-            onSelect: (code) => { autofillBulkDeliveryCapacity(code); handleBulkDelFocusShift(); }
-        });
-
-        bulkDelItemSearch.addEventListener('input', () => {
-            autofillBulkDeliveryCapacity(bulkDelItemSearch.value.trim());
-        });
-
-        bulkDelItemSearch.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === 'Tab') {
-                if (e.key === 'Tab') e.preventDefault();
-                if (bulkDeliveryCombobox.selectHighlighted()) return; // onSelect already shifts focus
-
-                setTimeout(() => {
-                    if (document.activeElement === bulkDelQtyInput || document.activeElement === bulkDelPalletCapacity) return;
-                    const capacity = bulkDelPalletCapacity.value;
-                    if (capacity && capacity.trim() !== '') {
-                        bulkDelQtyInput.focus();
-                    } else {
-                        bulkDelPalletCapacity.focus();
-                    }
-                }, 10);
-            }
-        });
-
-        bulkDelQtyInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                addToListBulkBtn.click();
-            }
-        });
-
-        addToListBulkBtn.addEventListener('click', () => {
-            const code = bulkDelItemSearch.value.trim();
-            let qty = bulkDelQtyInput.value.trim();
-            const capacity = parseFloat(bulkDelPalletCapacity.value);
-
-            if(!code || !qty) {
-                showToast('Material Code and Quantity are required.', 'error');
-                return;
-            }
-
-            if (!isNaN(capacity) && capacity > 0) {
-                palletCapacities[code] = capacity;
-                saveDataToAPI(['palletCapacities'], {}, null, { changedCode: code });
-
-                const totalQty = calculateSingleStockingQtyTotal(formatStockingQty(qty));
-                qty = generateBreakdownWithCapacity(totalQty, capacity);
-
-                // Ensure generateBreakdown outputs in the user's preferred standard format (+) before merging
-                qty = qty.replace(/\s*\|\s*/g, '+').replace(/×/g, 'x');
-            }
-
-            const rem = bulkDelSharedRemarks.value.trim();
-            const date = bulkDelSharedDate.value;
-            let formattedDate = '';
-            if(date) {
-                const [y, m, d] = date.split('-');
-                formattedDate = `${m}-${d}-${y}`;
-            }
-            const initialRemark = formattedDate ? (rem ? `${rem} ${formattedDate}` : formattedDate) : rem;
-
-            const existingIndex = pendingBulkDeliveries.findIndex(item => item.code === code);
-            if (existingIndex > -1) {
-                if (!isNaN(capacity) && capacity > 0) {
-                    pendingBulkDeliveries[existingIndex].qty = mergeDeliveriesBreakdown(pendingBulkDeliveries[existingIndex].qty, qty, capacity);
-                } else {
-                    pendingBulkDeliveries[existingIndex].qty += '+' + qty;
-                }
-
-                if (initialRemark && !pendingBulkDeliveries[existingIndex].remarks.includes(initialRemark)) {
-                    pendingBulkDeliveries[existingIndex].remarks += ' | ' + initialRemark;
-                }
-            } else {
-                pendingBulkDeliveries.push({code, qty, remarks: initialRemark});
-            }
-
-            renderBulkList();
-            bulkDelItemSearch.value = '';
-            bulkDelQtyInput.value = '';
-            bulkDelItemSearch.focus();
-        });
-
-        confirmBulkDeliveryButton.addEventListener('click', () => {
-            if(pendingBulkDeliveries.length === 0) {
-                showToast('No items to deliver.', 'error');
-                return;
-            }
-
-            let successCount = 0;
-            const changedCodes = [];
-            const newLogs = [];
-            pendingBulkDeliveries.forEach(d => {
-                let row = rowsByCode.get(d.code);
-
-                if(!row) {
-                    renderRow({code: d.code, stockingQty: '', remarks: []}, false);
-                    row = rowsByCode.get(d.code);
-                }
-
-                const oldQty = row.dataset.stockingQty || '';
-                const formattedNew = formatStockingQty(d.qty);
-                const combined = oldQty ? `${oldQty} | ${formattedNew}` : formattedNew;
-                row.dataset.stockingQty = combined;
-
-                const oldRemarks = JSON.parse(row.dataset.remarks || '[]');
-                const count = getBreakdownParts(formattedNew).length;
-                const specificRemarks = Array(count).fill(d.remarks);
-                const finalRemarks = [...oldRemarks, ...specificRemarks];
-                row.dataset.remarks = JSON.stringify(finalRemarks);
-
-                const finalFormatted = formatStockingQty(combined);
-                const total = calculateSingleStockingQtyTotal(finalFormatted);
-
-                row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, finalRemarks, JSON.parse(row.dataset.locations || '[]'));
-                row.cells[2].textContent = total.toLocaleString();
-                row.cells[3].textContent = finalRemarks.filter(r => r).join(' | ');
-
-                const added = calculateSingleStockingQtyTotal(formattedNew);
-                const newLog = logTransaction('DELIVERY (BULK)', d.code, `+${added.toLocaleString()} pcs`, { oldQty, oldRemarks, newQty: combined, newRemarks: finalRemarks, addedQty: formattedNew, addedRemarks: specificRemarks }, true);
-                newLogs.push(newLog);
-                changedCodes.push(d.code);
-                successCount++;
-            });
-
-            // One render + one combined save for the whole batch, instead of two separate requests.
-            renderHistoryLog(searchBar.value.toLowerCase());
-            saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes }, newLogs);
-            applyFiltersAndSort();
-            bulkDeliveriesModal.style.display = 'none';
-            showToast(`Successfully saved ${successCount} deliveries.`, 'success');
-        });
-
-        cancelBulkDelivery.addEventListener('click', () => {
-            bulkDeliveriesModal.style.display = 'none';
-        });
-
-        [itemTypeFilter, remarksFilter, dataPresenceFilter, materialCodeSort, moveDateFrom, moveTimeFrom, moveDateTo, moveTimeTo, movementMode].forEach(el => el.addEventListener('input', applyFiltersAndSort));
-        // searchBar fires on every keystroke and drives both the inventory table
-        // and (via applyFiltersAndSort -> renderHistoryLog) the history table, so
-        // debounce it specifically — the other filter controls above fire once
-        // per interaction and don't need it.
-        let searchBarDebounceTimer = null;
-        searchBar.addEventListener('input', () => {
-            clearTimeout(searchBarDebounceTimer);
-            searchBarDebounceTimer = setTimeout(applyFiltersAndSort, 250);
-        });
-
-        // Connect legacy and modern movement checkboxes so they mirror each other seamlessly
-        const legacyMovement = document.getElementById('enableMovementFilterLegacy');
-        const modernMovement = document.getElementById('enableMovementFilter');
-        if (legacyMovement && modernMovement) {
-            legacyMovement.addEventListener('change', () => {
-                modernMovement.checked = legacyMovement.checked;
-                // Dispatch change event to trigger existing listeners on enableMovementFilter
-                modernMovement.dispatchEvent(new Event('change'));
-            });
-            modernMovement.addEventListener('change', () => {
-                legacyMovement.checked = modernMovement.checked;
-                // Since modern movement has its own change listener bound next, let it execute naturally
-            });
-        }
-
-        toggleMoreFiltersBtn.addEventListener('click', () => {
-            if (secondaryFilters.style.display === 'none') {
-                secondaryFilters.style.display = 'flex';
-                toggleMoreFiltersBtn.innerHTML = '<i class="fas fa-sliders-h"></i> Less';
-            } else {
-                secondaryFilters.style.display = 'none';
-                toggleMoreFiltersBtn.innerHTML = '<i class="fas fa-sliders-h"></i> More';
-            }
-        });
-
-        enableMovementFilter.addEventListener('change', () => {
-            if (enableMovementFilter.checked) {
-                movementFilterOptions.style.display = 'flex';
-                // Default dates to today if empty
-                if (!moveDateFrom.value) {
-                    const now = new Date();
-                    moveDateFrom.value = now.toISOString().split('T')[0];
-                }
-                if (!moveDateTo.value) {
-                    const now = new Date();
-                    moveDateTo.value = now.toISOString().split('T')[0];
-                }
-            } else {
-                movementFilterOptions.style.display = 'none';
-            }
-            applyFiltersAndSort();
-        });
-
-        transactionHistoryToggle.addEventListener('click', () => {
-            if (transactionHistoryContent.style.display === 'none') {
-                transactionHistoryContent.style.display = 'block';
-                transactionHistoryIcon.classList.remove('fa-chevron-down');
-                transactionHistoryIcon.classList.add('fa-chevron-up');
-            } else {
-                transactionHistoryContent.style.display = 'none';
-                transactionHistoryIcon.classList.remove('fa-chevron-up');
-                transactionHistoryIcon.classList.add('fa-chevron-down');
-            }
-        });
-
-        [historyDateFrom, historyDateTo].forEach(el => el.addEventListener('change', () => renderHistoryLog(searchBar.value.toLowerCase())));
-        resetHistoryFilter.addEventListener('click', () => {
-            historyDateFrom.value = '';
-            historyDateTo.value = '';
-            renderHistoryLog(searchBar.value.toLowerCase());
-        });
-
-        fileOpsButton.addEventListener('click', () => { checkAccess(() => { fileOpsModal.style.display = 'block'; }); });
-        openImportModalButton.addEventListener('click', () => { checkAccess(async () => { await loadXLSX(); fileOpsModal.style.display = 'none'; const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = ".xlsx, .xls"; fileInput.onchange = e => handleFileSelect(e.target.files[0]); fileInput.click(); }); });
-
-        clearInventoryButton.addEventListener('click', () => { checkAccess(() => { fileOpsModal.style.display = 'none'; clearChoiceModal.style.display = 'block'; }); });
-        clearHistoryButton.addEventListener('click', () => { checkAccess(async () => {
-            setButtonLoading(clearHistoryButton, true);
-            try {
-                if (await customConfirm('Are you sure?')) { transactionHistory = []; historyFilteredCache = []; historyRenderedCount = 0; historyTableBody.innerHTML = ''; updateHistoryLoadMoreUI(); saveHistoryData(); logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.'); }
-            } finally {
-                setButtonLoading(clearHistoryButton, false);
-            }
-        }); });
-        inventoryTableBody.addEventListener('click', (event) => { const targetCell = event.target.closest('.editable-breakdown'); if (targetCell) {
-            const code = targetCell.closest('tr')?.dataset.code;
-            checkAccess(() => {
-                const row = rowsByCode.get(code);
-                if (!row) return; // item no longer present (e.g. removed by a reload triggered while the unlock modal was up)
-                currentEditingRow = row; editBreakdownInput.value = formatStockingQty(currentEditingRow.dataset.stockingQty); const remarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const locations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const parts = getBreakdownParts(formatStockingQty(currentEditingRow.dataset.stockingQty)); lastEditBreakdownParts = parts; markedForDeletionIndices = new Set(); generateRemarksInputs(parts.length, remarks, locations); if (editBreakdownItemCode) editBreakdownItemCode.textContent = currentEditingRow.dataset.code; if (stockingQtyFieldGroup) stockingQtyFieldGroup.classList.remove('stocking-qty-floating'); document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight')); updateEditBreakdownPreview(); editBreakdownModal.style.display = 'block';
-            });
-        }
-        });
-        cancelFileOps.addEventListener('click', () => { fileOpsModal.style.display = 'none'; });
-        backupButton.addEventListener('click', async () => { await loadXLSX(); exportBackupFile(); fileOpsModal.style.display = 'none'; });
-        restoreButton.addEventListener('click', async () => { await loadXLSX(); const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = ".xlsx, .xls"; fileInput.onchange = e => importBackupFile(e.target.files[0]); fileInput.click(); fileOpsModal.style.display = 'none'; });
-        exportExcelButton.addEventListener('click', async () => { await loadXLSX(); exportReportFile(); fileOpsModal.style.display = 'none'; });
-        printInventoryButton.addEventListener('click', () => { printInventory(); fileOpsModal.style.display = 'none'; });
-        cancelClearChoice.addEventListener('click', () => { clearChoiceModal.style.display = 'none'; });
-        triggerClearAllButton.addEventListener('click', async () => {
-            setButtonLoading(triggerClearAllButton, true);
-            try {
-                if(await customConfirm('This will delete all items in the inventory. Are you sure?')) { inventoryTableBody.innerHTML = ''; originalRowsOrder = []; rowsByCode = new Map(); applyFiltersAndSort(); saveInventoryData(); logTransaction('CLEAR ALL', '-', 'All inventory data cleared.'); }
-                clearChoiceModal.style.display = 'none';
-            } finally {
-                setButtonLoading(triggerClearAllButton, false);
-            }
-        });
-        triggerBulkClearButton.addEventListener('click', () => { bulkClearFilterSection.querySelectorAll('select').forEach(sel => { sel.value = 'ALL'; if (sel.__syncCustomSelect) sel.__syncCustomSelect(); }); populateBulkClearList(); clearChoiceModal.style.display = 'none'; bulkClearQtyModal.style.display = 'block'; });
-        bulkClearFilterSection.querySelectorAll('select').forEach(el => el.addEventListener('input', applyBulkClearFilters));
-        bulkSelectAllButton.addEventListener('click', () => { bulkClearList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true); });
-        bulkDeselectAllButton.addEventListener('click', () => { bulkClearList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false); });
-        cancelBulkClear.addEventListener('click', () => { bulkClearQtyModal.style.display = 'none'; });
-        confirmBulkClearButton.addEventListener('click', async () => {
-            const selectedCheckboxes = Array.from(bulkClearList.querySelectorAll('input[type="checkbox"]:checked'));
-            if (selectedCheckboxes.length === 0) { showToast('Please select at least one item to clear.', 'error'); return; }
-            setButtonLoading(confirmBulkClearButton, true);
-            try {
-                const codesToClear = selectedCheckboxes.map(cb => cb.value);
-                if (await customConfirm(`Are you sure you want to clear the quantity for ${codesToClear.length} selected item(s)?`)) {
-                    codesToClear.forEach(code => { const targetRow = rowsByCode.get(code); if (targetRow) { targetRow.dataset.stockingQty = ''; targetRow.dataset.remarks = '[]'; targetRow.dataset.locations = '[]'; targetRow.cells[1].innerHTML = ''; targetRow.cells[2].textContent = '0'; targetRow.cells[3].textContent = ''; } });
-                    saveInventoryData(codesToClear);
-                    logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : ''));
-                    applyFiltersAndSort();
-                    showToast(`Successfully cleared quantities for ${codesToClear.length} item(s).`, 'success');
-                    bulkClearQtyModal.style.display = 'none';
-                }
-            } finally {
-                setButtonLoading(confirmBulkClearButton, false);
-            }
-        });
-        confirmImportButton.addEventListener('click', async () => {
-            if (!(await customConfirm("Importing new data will overwrite the current inventory. Do you want to continue?"))) { return; }
-            setButtonLoading(confirmImportButton, true);
-            try {
-                const sheetName = excelSheetSelect.value; const worksheet = loadedWorkbook.Sheets[sheetName]; const qtyColIndex = stockingQtyDateSelectModal.value; const dataForHeaders = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); const codeHeaderRow = dataForHeaders[4] || []; const codeColIndex = codeHeaderRow.findIndex(h => typeof h === 'string' && h.trim().toUpperCase() === 'MATERIAL CODE'); if (codeColIndex === -1) { importErrorMessageDiv.textContent = `"MATERIAL CODE" column not found on Row 5.`; return; } inventoryTableBody.innerHTML = ''; originalRowsOrder = []; rowsByCode = new Map(); const range = XLSX.utils.decode_range(worksheet['!ref']); let importedCount = 0; for (let R = DATA_START_ROW_EXCEL_INDEX - 1; R <= range.e.r; ++R) { const codeCell = worksheet[XLSX.utils.encode_cell({c: codeColIndex, r: R})]; if (codeCell && codeCell.v) { importedCount++; const code = codeCell.w || codeCell.v.toString(); let stockingQty = ''; if (qtyColIndex) { const qtyCell = worksheet[XLSX.utils.encode_cell({c: parseInt(qtyColIndex), r: R})]; if (qtyCell) stockingQty = qtyCell.f || qtyCell.w || String(qtyCell.v) || ''; } renderRow({ code: code.trim(), stockingQty: stockingQty.toString(), remarks: Array(getBreakdownParts(formatStockingQty(stockingQty)).length).fill('') }, false); } } applyFiltersAndSort(); const importLog = logTransaction('IMPORT', '-', `Imported ${importedCount} items from sheet: ${sheetName}.`, null, true); prependHistoryLog(importLog); saveDataToAPI(['inventoryData', 'transactionHistory'], {}, [importLog]); importDataModal.style.display = 'none';
-            } finally {
-                setButtonLoading(confirmImportButton, false);
-            }
-        });
-        let editBreakdownDebounceTimer = null;
-        editBreakdownInput.addEventListener('input', function() {
-            clearTimeout(editBreakdownDebounceTimer);
-            const val = this.value;
-            editBreakdownDebounceTimer = setTimeout(() => {
-                const newParts = getBreakdownParts(formatStockingQty(val));
-                const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
-                const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
-                const mapping = diffBreakdownPartsWithFallback(lastEditBreakdownParts, newParts, markedForDeletionIndices);
-                const alignedRemarks = mapping.map(oldIdx => oldIdx === -1 ? '' : (currentRemarks[oldIdx] || ''));
-                const alignedLocations = mapping.map(oldIdx => oldIdx === -1 ? '' : (currentLocations[oldIdx] || ''));
-                lastEditBreakdownParts = newParts;
-                markedForDeletionIndices = new Set(); // marks were relative to the old part indices; stale now that positions shifted
-                generateRemarksInputs(newParts.length, alignedRemarks, alignedLocations);
-                updateEditBreakdownPreview();
-            }, 200);
-        });
-        dynamicRemarksContainer.addEventListener('input', function(event) { if (event.target.classList.contains('remark-part-input') || event.target.classList.contains('location-part-input')) { updateEditBreakdownPreview(); } });
-        saveBreakdownButton.addEventListener('click', () => { if (!currentEditingRow) return; const oldStockingQty = currentEditingRow.dataset.stockingQty; const oldRemarks = JSON.parse(currentEditingRow.dataset.remarks || '[]'); const oldLocations = JSON.parse(currentEditingRow.dataset.locations || '[]'); const newStockingQty = editBreakdownInput.value; const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim()); const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim()); currentEditingRow.dataset.stockingQty = newStockingQty; currentEditingRow.dataset.remarks = JSON.stringify(newRemarks); currentEditingRow.dataset.locations = JSON.stringify(newLocations); const formattedBreakdown = formatStockingQty(newStockingQty); const total = calculateSingleStockingQtyTotal(formattedBreakdown); currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations); currentEditingRow.cells[2].textContent = total.toLocaleString(); currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | '); saveInventoryData([currentEditingRow.dataset.code]); logTransaction('EDIT ITEM', currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, { oldQty: oldStockingQty, oldRemarks, oldLocations, newQty: newStockingQty, newRemarks, newLocations }); showToast('Item updated.', 'success'); editBreakdownModal.style.display = 'none'; });
-        deleteItemInModalButton.addEventListener('click', async () => {
-            if (!currentEditingRow) return;
-            const codeToDelete = currentEditingRow.dataset.code;
-            setButtonLoading(deleteItemInModalButton, true);
-            try {
-                if (await customConfirm(`Are you sure you want to delete ${codeToDelete}?`)) { const index = originalRowsOrder.findIndex(row => row === currentEditingRow); if (index > -1) originalRowsOrder.splice(index, 1); rowsByCode.delete(codeToDelete); applyFiltersAndSort(); saveInventoryData(null, [codeToDelete]); logTransaction('DELETE ITEM', codeToDelete, 'Item and its stock removed.'); editBreakdownModal.style.display = 'none'; }
-            } finally {
-                setButtonLoading(deleteItemInModalButton, false);
-            }
-        });
-        editBreakdownModal.addEventListener('keydown', function(event) { if (event.key === 'Enter') { event.preventDefault(); saveBreakdownButton.click(); } });
-
-        userNameInput.addEventListener('input', () => {
-            localStorage.setItem('userName', userNameInput.value);
-        });
-
-        function renderWithdrawList() {
-            if (!pendingBulkWithdrawals.length) {
-                pendingWithdrawalListContainer.innerHTML = '<p class="bulk-list-empty-text">No items added.</p>';
-                return;
-            }
-            pendingWithdrawalListContainer.innerHTML = pendingBulkWithdrawals.map((item, idx) => {
-                const totalWithdrawQty = calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
-                return `
-                <div class="bulk-pending-card">
-                    <div class="bulk-pending-card-header">
-                        <span class="bulk-pending-card-code">${escapeHtml(item.code)}</span>
-                        <button class="bulk-pending-card-remove" onclick="removeWithdrawalItem(${idx})"><i class="fas fa-times"></i></button>
-                    </div>
-                    <div class="bulk-pending-card-row">
-                        <div class="bulk-pending-card-field">
-                            <label class="withdraw-qty-label">Qty Breakdown:</label>
-                            <input type="text" value="${escapeHtml(item.qty)}" onchange="updateWithdrawalItemQty(${idx}, this.value)">
-                        </div>
-                        <div class="bulk-pending-card-total withdraw-total-label">
-                            Total: ${totalWithdrawQty.toLocaleString()}
-                        </div>
-                    </div>
-                </div>
-            `;
-            }).join('');
-        }
-
-        window.removeWithdrawalItem = function(idx) {
-            pendingBulkWithdrawals.splice(idx, 1);
-            renderWithdrawList();
-        };
-
-        window.updateWithdrawalItemQty = function(idx, newQtyStr) {
-            const item = pendingBulkWithdrawals[idx];
-            if (!item) return;
-            const code = item.code;
-            const row = rowsByCode.get(code);
-            if (!row) return;
-
-            const maxWithdrawable = getWithdrawableStock(row);
-            const newTotal = calculateSingleStockingQtyTotal(formatStockingQty(newQtyStr));
-
-            if (newTotal > maxWithdrawable) {
-                showToast(`Cannot withdraw ${newTotal.toLocaleString()}. Only ${maxWithdrawable.toLocaleString()} is available for ${code}.`, 'error');
-                // Re-render to revert the input field to the previous valid state
-                renderWithdrawList();
-                return;
-            }
-
-            if (newTotal <= 0) {
-                showToast('Please enter a valid quantity greater than 0.', 'error');
-                renderWithdrawList();
-                return;
-            }
-
-            pendingBulkWithdrawals[idx].qty = newQtyStr;
-            renderWithdrawList();
-        };
-
-        let bulkWithdrawComboboxOptions = [];
-        openBulkWithdrawModalButton.addEventListener('click', () => {
-            checkAccess(() => {
-                const sortedRows = [...originalRowsOrder].sort((a, b) => {
-                    const stockA = getWithdrawableStock(a);
-                    const stockB = getWithdrawableStock(b);
-                    if (stockA > 0 && stockB <= 0) return -1;
-                    if (stockA <= 0 && stockB > 0) return 1;
-                    return (a.dataset.code || '').localeCompare(b.dataset.code || '');
-                });
-
-                bulkWithdrawComboboxOptions = sortedRows
-                    .map(row => ({ code: row.dataset.code, stock: getWithdrawableStock(row) }))
-                    .filter(x => x.stock > 0)
-                    .map(x => ({ value: x.code, label: `🟢 Avail: ${x.stock.toLocaleString()}` }));
-
-                pendingBulkWithdrawals = [];
-                bulkWithdrawItemSearch.value = '';
-                bulkWithdrawQtyInput.value = '';
-                bulkWithdrawErrorMessage.innerHTML = '';
-                renderWithdrawList();
-                bulkWithdrawModal.style.display = 'block';
-                setTimeout(() => bulkWithdrawItemSearch.focus(), 100);
-            });
-        });
-
-        const bulkWithdrawInputs = [
-            bulkWithdrawItemSearch,
-            bulkWithdrawQtyInput
-        ];
-
-        bulkWithdrawInputs.forEach((input, index) => {
-            input.addEventListener('keydown', (e) => {
-                // Let the custom combobox handle arrow-key navigation of its own suggestion list
-                if (input === bulkWithdrawItemSearch && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-                    return;
-                }
-
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    const nextInput = bulkWithdrawInputs[index + 1];
-                    if (nextInput) {
-                        nextInput.focus();
-                    }
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    const prevInput = bulkWithdrawInputs[index - 1];
-                    if (prevInput) {
-                        prevInput.focus();
-                    }
-                }
-            });
-        });
-
-        const bulkWithdrawCombobox = attachSearchableCombobox(bulkWithdrawItemSearch, {
-            getOptions: () => bulkWithdrawComboboxOptions,
-            onSelect: () => { bulkWithdrawQtyInput.focus(); }
-        });
-
-        bulkWithdrawItemSearch.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === 'Tab') {
-                if (e.key === 'Tab') e.preventDefault();
-                if (bulkWithdrawCombobox.selectHighlighted()) return; // onSelect already shifts focus
-
-                setTimeout(() => {
-                    if (document.activeElement === bulkWithdrawQtyInput) return;
-                }, 150);
-            }
-        });
-
-        bulkWithdrawQtyInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                addToListWithdrawBtn.click();
-            }
-        });
-
-        addToListWithdrawBtn.addEventListener('click', () => {
-            const code = bulkWithdrawItemSearch.value.trim();
-            const newQtyString = bulkWithdrawQtyInput.value.trim();
-
-            if (!code || !newQtyString) {
-                bulkWithdrawErrorMessage.textContent = 'Material Code and Quantity are required.';
-                return;
-            }
-
-            const row = rowsByCode.get(code);
-            if (!row) {
-                bulkWithdrawErrorMessage.textContent = `Item code ${code} not found.`;
-                return;
-            }
-
-            const maxWithdrawable = getWithdrawableStock(row);
-
-            // Calculate total of what we are TRYING to add right now
-            const newQtyTotal = calculateSingleStockingQtyTotal(formatStockingQty(newQtyString));
-
-            if (newQtyTotal <= 0) {
-                 bulkWithdrawErrorMessage.textContent = 'Please enter a valid quantity greater than 0.';
-                 return;
-            }
-
-            // Check if it already exists in our pending list
-            const existingIndex = pendingBulkWithdrawals.findIndex(item => item.code === code);
-
-            let combinedQtyString = newQtyString;
-            let combinedTotal = newQtyTotal;
-
-            if (existingIndex > -1) {
-                const existingItem = pendingBulkWithdrawals[existingIndex];
-                // Append the new qty string (e.g., "10" + "+50")
-                combinedQtyString = existingItem.qty + "+" + newQtyString;
-                combinedTotal = calculateSingleStockingQtyTotal(formatStockingQty(combinedQtyString));
-            }
-
-            if (combinedTotal > maxWithdrawable) {
-                bulkWithdrawErrorMessage.innerHTML = `Cannot withdraw <strong>${combinedTotal.toLocaleString()}</strong>.<br>Only <strong>${maxWithdrawable.toLocaleString()}</strong> is available for ${escapeHtml(code)}.`;
-                return;
-            }
-
-            bulkWithdrawErrorMessage.innerHTML = '';
-
-            if (existingIndex > -1) {
-                // Update existing
-                pendingBulkWithdrawals[existingIndex].qty = combinedQtyString;
-            } else {
-                // Add new
-                pendingBulkWithdrawals.push({ code: code, qty: newQtyString });
-            }
-
-            renderWithdrawList();
-
-            // Clear and refocus for sequential entry
-            bulkWithdrawItemSearch.value = '';
-            bulkWithdrawQtyInput.value = '';
-            bulkWithdrawItemSearch.focus();
-        });
-
-        cancelBulkWithdraw.addEventListener('click', () => {
-            bulkWithdrawModal.style.display = 'none';
-        });
-
-        confirmBulkWithdrawButton.addEventListener('click', async () => {
-            if (confirmBulkWithdrawButton.disabled) return;
-            if (pendingBulkWithdrawals.length === 0) {
-                bulkWithdrawErrorMessage.textContent = 'Please enter a quantity for at least one item.';
-                return;
-            }
-
-            setButtonLoading(confirmBulkWithdrawButton, true);
-            try {
-                if (!(await customConfirm(`You are about to withdraw from ${pendingBulkWithdrawals.length} item(s). Continue?`))) {
-                    return;
-                }
-
-                let successfulWithdrawals = 0;
-                let transactionDetails = [];
-                const changedCodes = [];
-
-                pendingBulkWithdrawals.forEach(item => {
-                    const totalWithdrawQty = calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
-                    const result = performWithdrawal(item.code, totalWithdrawQty);
-                    if (result.success) {
-                        successfulWithdrawals++;
-                        transactionDetails.push(`${item.code} (-${totalWithdrawQty.toLocaleString()})`);
-                        changedCodes.push(item.code);
-                    } else {
-                        console.error(result.message);
-                    }
-                });
-
-                if (successfulWithdrawals > 0) {
-                    applyFiltersAndSort();
-                    const newLog = logTransaction('BULK WITHDRAW', `${successfulWithdrawals} items`, transactionDetails.join(', '), null, true);
-                    prependHistoryLog(newLog);
-                    // One combined save for inventory + history, instead of two separate requests.
-                    saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes }, [newLog]);
-                    showToast(`Successfully withdrew from ${successfulWithdrawals} item(s).`, 'success');
-                    bulkWithdrawModal.style.display = 'none';
-                }
-            } finally {
-                setButtonLoading(confirmBulkWithdrawButton, false);
-            }
-        });
-
-        cancelImportButton.addEventListener('click', () => { importDataModal.style.display = 'none' });
-        cancelBreakdownButton.addEventListener('click', () => { editBreakdownModal.style.display = 'none' });
-
-
-        // Variance Tracker Logic
-        openVarianceModalButton.addEventListener('click', () => {
-            checkAccess(() => {
-                varianceModal.style.display = 'block';
-                varianceFileInput.value = '';
-                varianceTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">Upload a file to see results.</td></tr>';
-                varianceErrorMessage.textContent = '';
-            });
-        });
-
-        closeVarianceModalButton.addEventListener('click', () => {
-            varianceModal.style.display = 'none';
-        });
+      } else {
+        bulkDelSharedDate.focus();
+      }
+    }, 150);
+  }
+});
+
+const bulkDeliveryCombobox = attachSearchableCombobox(bulkDelItemSearch, {
+  getOptions: () => bulkDeliveryComboboxOptions,
+  onSelect: code => {
+    autofillBulkDeliveryCapacity(code);
+    handleBulkDelFocusShift();
+  },
+});
+
+bulkDelItemSearch.addEventListener('input', () => {
+  autofillBulkDeliveryCapacity(bulkDelItemSearch.value.trim());
+});
+
+bulkDelItemSearch.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    if (e.key === 'Tab') e.preventDefault();
+    if (bulkDeliveryCombobox.selectHighlighted()) return;
+    setTimeout(() => {
+      if (document.activeElement === bulkDelQtyInput || document.activeElement === bulkDelPalletCapacity) return;
+      const capacity = bulkDelPalletCapacity.value;
+      if (capacity && capacity.trim() !== '') {
+        bulkDelQtyInput.focus();
+      } else {
+        bulkDelPalletCapacity.focus();
+      }
+    }, 10);
+  }
+});
+
+bulkDelQtyInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addToListBulkBtn.click();
+  }
+});
+
+addToListBulkBtn.addEventListener('click', () => {
+  const code = bulkDelItemSearch.value.trim();
+  let qty = bulkDelQtyInput.value.trim();
+  const capacity = parseFloat(bulkDelPalletCapacity.value);
+
+  if (!code || !qty) {
+    showToast('Material Code and Quantity are required.', 'error');
+    return;
+  }
+
+  if (!isNaN(capacity) && capacity > 0) {
+    state.palletCapacities[code] = capacity;
+    saveDataToAPI(['palletCapacities'], {}, null, { changedCode: code });
+
+    const totalQty = calculateSingleStockingQtyTotal(formatStockingQty(qty));
+    qty = generateBreakdownWithCapacity(totalQty, capacity);
+    qty = qty.replace(/\s*\|\s*/g, '+').replace(/×/g, 'x');
+  }
+
+  const rem = bulkDelSharedRemarks.value.trim();
+  const date = bulkDelSharedDate.value;
+  let formattedDate = '';
+  if (date) {
+    const [y, m, d] = date.split('-');
+    formattedDate = `${m}-${d}-${y}`;
+  }
+  const initialRemark = formattedDate ? (rem ? `${rem} ${formattedDate}` : formattedDate) : rem;
+
+  const existingIndex = state.pendingBulkDeliveries.findIndex(item => item.code === code);
+  if (existingIndex > -1) {
+    if (!isNaN(capacity) && capacity > 0) {
+      state.pendingBulkDeliveries[existingIndex].qty = mergeDeliveriesBreakdown(state.pendingBulkDeliveries[existingIndex].qty, qty, capacity);
+    } else {
+      state.pendingBulkDeliveries[existingIndex].qty += '+' + qty;
+    }
+    if (initialRemark && !state.pendingBulkDeliveries[existingIndex].remarks.includes(initialRemark)) {
+      state.pendingBulkDeliveries[existingIndex].remarks += ' | ' + initialRemark;
+    }
+  } else {
+    state.pendingBulkDeliveries.push({ code, qty, remarks: initialRemark });
+  }
+
+  renderBulkList();
+  bulkDelItemSearch.value = '';
+  bulkDelQtyInput.value = '';
+  bulkDelItemSearch.focus();
+});
+
+confirmBulkDeliveryButton.addEventListener('click', async () => {
+  if (state.pendingBulkDeliveries.length === 0) {
+    showToast('No items to deliver.', 'error');
+    return;
+  }
+
+  let successCount = 0;
+  const changedCodes = [];
+  const newLogs = [];
+  state.pendingBulkDeliveries.forEach(d => {
+    let row = state.rowsByCode.get(d.code);
+    if (!row) {
+      renderRow({ code: d.code, stockingQty: '', remarks: [] }, false);
+      row = state.rowsByCode.get(d.code);
+    }
+
+    const oldQty = row.dataset.stockingQty || '';
+    const formattedNew = formatStockingQty(d.qty);
+    const combined = oldQty ? `${oldQty} | ${formattedNew}` : formattedNew;
+    row.dataset.stockingQty = combined;
+
+    const oldRemarks = JSON.parse(row.dataset.remarks || '[]');
+    const count = getBreakdownParts(formattedNew).length;
+    const specificRemarks = Array(count).fill(d.remarks);
+    const finalRemarks = [...oldRemarks, ...specificRemarks];
+    row.dataset.remarks = JSON.stringify(finalRemarks);
+
+    const finalFormatted = formatStockingQty(combined);
+    const total = calculateSingleStockingQtyTotal(finalFormatted);
+
+    row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, finalRemarks, JSON.parse(row.dataset.locations || '[]'));
+    row.cells[2].textContent = total.toLocaleString();
+    row.cells[3].textContent = finalRemarks.filter(r => r).join(' | ');
+
+    const added = calculateSingleStockingQtyTotal(formattedNew);
+    const newLog = logTransaction(
+      'DELIVERY (BULK)',
+      d.code,
+      `+${added.toLocaleString()} pcs`,
+      { oldQty, oldRemarks, newQty: combined, newRemarks: finalRemarks, addedQty: formattedNew, addedRemarks: specificRemarks },
+      true
+    );
+    newLogs.push(newLog);
+    changedCodes.push(d.code);
+    successCount++;
+  });
+
+  try {
+    renderHistoryLog(searchBar.value.toLowerCase());
+    await saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes }, newLogs);
+    await applyFiltersAndSort();
+    bulkDeliveriesModal.style.display = 'none';
+    showToast(`Successfully saved ${successCount} deliveries.`, 'success');
+  } catch (err) {
+    console.error('Bulk delivery save failed:', err);
+    showToast('Failed to save delivery data. Please try again.', 'error');
+  }
+});
+
+cancelBulkDelivery.addEventListener('click', () => {
+  bulkDeliveriesModal.style.display = 'none';
+});
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Bulk Withdrawal
+// ---------------------------------------------------------------------------
+let bulkWithdrawComboboxOptions = [];
+openBulkWithdrawModalButton.addEventListener('click', () => {
+  checkAccess(() => {
+    const sortedRows = [...state.originalRowsOrder].sort((a, b) => {
+      const stockA = getWithdrawableStock(a);
+      const stockB = getWithdrawableStock(b);
+      if (stockA > 0 && stockB <= 0) return -1;
+      if (stockA <= 0 && stockB > 0) return 1;
+      return (a.dataset.code || '').localeCompare(b.dataset.code || '');
+    });
+
+    bulkWithdrawComboboxOptions = sortedRows
+      .map(row => ({ code: row.dataset.code, stock: getWithdrawableStock(row) }))
+      .filter(x => x.stock > 0)
+      .map(x => ({ value: x.code, label: `\u{1F7E2} Avail: ${x.stock.toLocaleString()}` }));
+
+    state.pendingBulkWithdrawals = [];
+    bulkWithdrawItemSearch.value = '';
+    bulkWithdrawQtyInput.value = '';
+    bulkWithdrawErrorMessage.innerHTML = '';
+    renderWithdrawList();
+    bulkWithdrawModal.style.display = 'block';
+    setTimeout(() => bulkWithdrawItemSearch.focus(), 100);
+  });
+});
+
+const bulkWithdrawInputs = [bulkWithdrawItemSearch, bulkWithdrawQtyInput];
+
+bulkWithdrawInputs.forEach((input, index) => {
+  input.addEventListener('keydown', e => {
+    if (input === bulkWithdrawItemSearch && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextInput = bulkWithdrawInputs[index + 1];
+      if (nextInput) nextInput.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevInput = bulkWithdrawInputs[index - 1];
+      if (prevInput) prevInput.focus();
+    }
+  });
+});
+
+const bulkWithdrawCombobox = attachSearchableCombobox(bulkWithdrawItemSearch, {
+  getOptions: () => bulkWithdrawComboboxOptions,
+  onSelect: () => {
+    bulkWithdrawQtyInput.focus();
+  },
+});
+
+bulkWithdrawItemSearch.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    if (e.key === 'Tab') e.preventDefault();
+    if (bulkWithdrawCombobox.selectHighlighted()) return;
+    setTimeout(() => {
+      if (document.activeElement === bulkWithdrawQtyInput) return;
+    }, 150);
+  }
+});
+
+bulkWithdrawQtyInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addToListWithdrawBtn.click();
+  }
+});
+
+addToListWithdrawBtn.addEventListener('click', () => {
+  const code = bulkWithdrawItemSearch.value.trim();
+  const newQtyString = bulkWithdrawQtyInput.value.trim();
+
+  if (!code || !newQtyString) {
+    bulkWithdrawErrorMessage.textContent = 'Material Code and Quantity are required.';
+    return;
+  }
+
+  const row = state.rowsByCode.get(code);
+  if (!row) {
+    bulkWithdrawErrorMessage.textContent = `Item code ${code} not found.`;
+    return;
+  }
+
+  const maxWithdrawable = getWithdrawableStock(row);
+  const newQtyTotal = calculateSingleStockingQtyTotal(formatStockingQty(newQtyString));
+
+  if (newQtyTotal <= 0) {
+    bulkWithdrawErrorMessage.textContent = 'Please enter a valid quantity greater than 0.';
+    return;
+  }
+
+  const existingIndex = state.pendingBulkWithdrawals.findIndex(item => item.code === code);
+
+  let combinedQtyString = newQtyString;
+  let combinedTotal = newQtyTotal;
+
+  if (existingIndex > -1) {
+    const existingItem = state.pendingBulkWithdrawals[existingIndex];
+    combinedQtyString = existingItem.qty + '+' + newQtyString;
+    combinedTotal = calculateSingleStockingQtyTotal(formatStockingQty(combinedQtyString));
+  }
+
+  if (combinedTotal > maxWithdrawable) {
+    bulkWithdrawErrorMessage.innerHTML = `Cannot withdraw <strong>${combinedTotal.toLocaleString()}</strong>.<br>Only <strong>${maxWithdrawable.toLocaleString()}</strong> is available for ${escapeHtml(code)}.`;
+    return;
+  }
+
+  bulkWithdrawErrorMessage.innerHTML = '';
+
+  if (existingIndex > -1) {
+    state.pendingBulkWithdrawals[existingIndex].qty = combinedQtyString;
+  } else {
+    state.pendingBulkWithdrawals.push({ code: code, qty: newQtyString });
+  }
+
+  renderWithdrawList();
+
+  bulkWithdrawItemSearch.value = '';
+  bulkWithdrawQtyInput.value = '';
+  bulkWithdrawItemSearch.focus();
+});
+
+cancelBulkWithdraw.addEventListener('click', () => {
+  bulkWithdrawModal.style.display = 'none';
+});
+
+confirmBulkWithdrawButton.addEventListener('click', async () => {
+  if (confirmBulkWithdrawButton.disabled) return;
+  if (state.pendingBulkWithdrawals.length === 0) {
+    bulkWithdrawErrorMessage.textContent = 'Please enter a quantity for at least one item.';
+    return;
+  }
+
+  setButtonLoading(confirmBulkWithdrawButton, true);
+  try {
+    if (!(await customConfirm(`You are about to withdraw from ${state.pendingBulkWithdrawals.length} item(s). Continue?`))) return;
+
+    let successfulWithdrawals = 0;
+    let transactionDetails = [];
+    const changedCodes = [];
+
+    state.pendingBulkWithdrawals.forEach(item => {
+      const totalWithdrawQty = calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
+      const result = performWithdrawal(item.code, totalWithdrawQty);
+      if (result.success) {
+        successfulWithdrawals++;
+        transactionDetails.push(`${item.code} (-${totalWithdrawQty.toLocaleString()})`);
+        changedCodes.push(item.code);
+      } else {
+        console.error(result.message);
+      }
+    });
+
+    if (successfulWithdrawals > 0) {
+      await applyFiltersAndSort();
+      const newLog = logTransaction('BULK WITHDRAW', `${successfulWithdrawals} items`, transactionDetails.join(', '), null, true);
+      prependHistoryLog(newLog);
+      saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes }, [newLog]);
+      showToast(`Successfully withdrew from ${successfulWithdrawals} item(s).`, 'success');
+      bulkWithdrawModal.style.display = 'none';
+    } else {
+      showToast('No withdrawals could be processed. Stock may have changed.', 'error');
+    }
+  } finally {
+    setButtonLoading(confirmBulkWithdrawButton, false);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Event Listeners — Variance Tracker
+// ---------------------------------------------------------------------------
+openVarianceModalButton.addEventListener('click', () => {
+  checkAccess(() => {
+    varianceModal.style.display = 'block';
+    varianceFileInput.value = '';
+    varianceTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">Upload a file to see results.</td></tr>';
+    varianceErrorMessage.textContent = '';
+  });
+});
+
+closeVarianceModalButton.addEventListener('click', () => {
+  varianceModal.style.display = 'none';
+});
 
 compareVarianceButton.addEventListener('click', async () => {
-            const file = varianceFileInput.files[0];
-            if (!file) {
-                varianceErrorMessage.textContent = 'Please select an Excel file.';
-                return;
-            }
-            varianceErrorMessage.textContent = 'Processing...';
-            await loadXLSX();
+  const file = varianceFileInput.files[0];
+  if (!file) {
+    varianceErrorMessage.textContent = 'Please select an Excel file.';
+    return;
+  }
+  varianceErrorMessage.textContent = 'Processing...';
+  await loadXLSX();
 
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-                    // Restore Inventory logic (parse backup format)
-                    const invSheet = workbook.Sheets["Inventory_Backup"] || workbook.Sheets[workbook.SheetNames[0]];
-                    const jsonData = XLSX.utils.sheet_to_json(invSheet);
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const invSheet = workbook.Sheets['Inventory_Backup'] || workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(invSheet);
 
-                    // Parse Data
-                    const excelInventory = {};
+      if (!jsonData.length || !jsonData[0].hasOwnProperty('MATERIAL_CODE') || !jsonData[0].hasOwnProperty('STOCKING_QTY')) {
+        varianceErrorMessage.textContent = 'Invalid Backup file format. Ensure you are uploading a system backup.';
+        return;
+      }
 
-                    if (!jsonData.length || !jsonData[0].hasOwnProperty('MATERIAL_CODE') || !jsonData[0].hasOwnProperty('STOCKING_QTY')) {
-                        varianceErrorMessage.textContent = 'Invalid Backup file format. Ensure you are uploading a system backup.';
-                        return;
-                    }
+      const excelInventory = {};
+      jsonData.forEach(item => {
+        if (item.MATERIAL_CODE) {
+          const code = String(item.MATERIAL_CODE).trim();
+          const stockingQtyString = String(item.STOCKING_QTY || '');
+          const stockVal = calculateSingleStockingQtyTotal(formatStockingQty(stockingQtyString));
+          if (!isNaN(stockVal)) {
+            excelInventory[code] = stockVal;
+          }
+        }
+      });
 
-                    jsonData.forEach(item => {
-                        if (item.MATERIAL_CODE) {
-                            const code = String(item.MATERIAL_CODE).trim();
-                            const stockingQtyString = String(item.STOCKING_QTY || '');
-                            const stockVal = calculateSingleStockingQtyTotal(formatStockingQty(stockingQtyString));
+      const results = compareVariance(file, excelInventory);
 
-                            if (!isNaN(stockVal)) {
-                                excelInventory[code] = stockVal;
-                            }
-                        }
-                    });
-
-                    // Compare with System Data
-                    const varianceResults = [];
-                    const systemInventoryMap = {};
-
-                    originalRowsOrder.forEach(row => {
-                        const code = row.dataset.code;
-                        const qty = calculateSingleStockingQtyTotal(formatStockingQty(row.dataset.stockingQty));
-                        systemInventoryMap[code] = qty;
-                    });
-
-                    // Combine all keys
-                    const allKeys = new Set([...Object.keys(systemInventoryMap), ...Object.keys(excelInventory)]);
-
-                    allKeys.forEach(key => {
-                        const sysQty = systemInventoryMap[key] || 0;
-                        const excelQty = excelInventory[key] || 0;
-                        const variance = sysQty - excelQty;
-
-                        if (sysQty !== 0 || excelQty !== 0) {
-                            varianceResults.push({
-                                code: key,
-                                sysQty,
-                                excelQty,
-                                variance
-                            });
-                        }
-                    });
-
-                    // Render Table
-                    varianceTableBody.innerHTML = '';
-                    if (varianceResults.length === 0) {
-                        varianceTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No data found or no variance.</td></tr>';
-                    } else {
-                        // Sort by variance magnitude (descending)
-                        varianceResults.sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
-
-                        varianceResults.forEach(res => {
-                            const tr = document.createElement('tr');
-
-                            let varianceColor = 'black';
-                            let varianceText = res.variance.toLocaleString();
-                            if (res.variance > 0) {
-                                varianceColor = 'green'; // Surplus
-                                varianceText = `+${varianceText}`;
-                            } else if (res.variance < 0) {
-                                varianceColor = 'red'; // Deficit
-                            }
-
-                            tr.innerHTML = `
-                                <td>${escapeHtml(res.code)}</td>
-                                <td>${res.sysQty.toLocaleString()}</td>
-                                <td>${res.excelQty.toLocaleString()}</td>
-                                <td style="color: ${varianceColor}; font-weight: bold;">${varianceText}</td>
-                            `;
-                            varianceTableBody.appendChild(tr);
-                        });
-                    }
-                    varianceErrorMessage.textContent = '';
-
-                } catch (err) {
-                    console.error(err);
-                    varianceErrorMessage.textContent = 'Error processing file. Please ensure it is a valid Excel file.';
-                }
-            };
-            reader.readAsArrayBuffer(file);
+      varianceTableBody.innerHTML = '';
+      if (results.length === 0) {
+        varianceTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No data found or no variance.</td></tr>';
+      } else {
+        results.forEach(res => {
+          const tr = document.createElement('tr');
+          let varianceColor = 'black';
+          let varianceText = res.variance.toLocaleString();
+          if (res.variance > 0) {
+            varianceColor = 'green';
+            varianceText = `+${varianceText}`;
+          } else if (res.variance < 0) {
+            varianceColor = 'red';
+          }
+          tr.innerHTML = `
+            <td>${escapeHtml(res.code)}</td>
+            <td>${res.sysQty.toLocaleString()}</td>
+            <td>${res.excelQty.toLocaleString()}</td>
+            <td style="color: ${varianceColor}; font-weight: bold;">${varianceText}</td>
+          `;
+          varianceTableBody.appendChild(tr);
         });
+      }
+      varianceErrorMessage.textContent = '';
+    } catch (err) {
+      console.error(err);
+      varianceErrorMessage.textContent = 'Error processing file. Please ensure it is a valid Excel file.';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
 
-        document.addEventListener('DOMContentLoaded', () => {
-            updateDateTimeAndShift();
-            loadDataFromAPI();
+// ---------------------------------------------------------------------------
+// Event Listeners — Misc Checkboxes & Preferences
+// ---------------------------------------------------------------------------
+if (showBuildingRackCheckbox) {
+  const savedShowBuildingRack = localStorage.getItem('showBuildingRack');
+  showBuildingRackCheckbox.checked = savedShowBuildingRack === null ? true : savedShowBuildingRack === 'true';
+  showBuildingRackCheckbox.addEventListener('change', () => {
+    localStorage.setItem('showBuildingRack', showBuildingRackCheckbox.checked);
+    applyBuildingRackVisibility();
+  });
+}
 
-            const savedUserName = localStorage.getItem('userName');
-            if (savedUserName) userNameInput.value = savedUserName;
-        });
+if (includeBldgRackPrintCheckbox) {
+  const savedIncludeBldgRackPrint = localStorage.getItem('includeBldgRackPrint');
+  includeBldgRackPrintCheckbox.checked = savedIncludeBldgRackPrint === 'true';
+  includeBldgRackPrintCheckbox.addEventListener('change', () => {
+    localStorage.setItem('includeBldgRackPrint', includeBldgRackPrintCheckbox.checked);
+  });
+}
 
-// -----------------------------------------------------------------------------
-// Custom glass-styled dropdowns
-// -----------------------------------------------------------------------------
-    (function () {
-        function wrapNativeSelect(selectEl) {
-            if (selectEl.dataset.customWrapped) return;
-            selectEl.dataset.customWrapped = 'true';
-            selectEl.classList.add('custom-select-native');
+if (shortenBreakdownCheckbox) {
+  const savedShortenBreakdown = localStorage.getItem('shortenBreakdown');
+  shortenBreakdownCheckbox.checked = savedShortenBreakdown === 'true';
+  shortenBreakdownCheckbox.addEventListener('change', () => {
+    localStorage.setItem('shortenBreakdown', shortenBreakdownCheckbox.checked);
+    refreshAllBreakdownDisplays();
+  });
+}
 
-            const wrapper = document.createElement('div');
-            wrapper.className = 'custom-select-wrapper';
-            selectEl.parentNode.insertBefore(wrapper, selectEl);
-            wrapper.appendChild(selectEl);
+if (simplifyBreakdownCheckbox) {
+  const savedSimplifyBreakdown = localStorage.getItem('simplifyBreakdown');
+  simplifyBreakdownCheckbox.checked = savedSimplifyBreakdown === 'true';
+  simplifyBreakdownCheckbox.addEventListener('change', () => {
+    localStorage.setItem('simplifyBreakdown', simplifyBreakdownCheckbox.checked);
+    refreshAllBreakdownDisplays();
+  });
+}
 
-            const trigger = document.createElement('button');
-            trigger.type = 'button';
-            trigger.className = 'custom-select-trigger';
-            trigger.innerHTML = '<span class="custom-select-trigger-label"></span><i class="fas fa-chevron-down custom-select-trigger-icon"></i>';
-            wrapper.appendChild(trigger);
+userNameInput.addEventListener('input', () => {
+  localStorage.setItem('userName', userNameInput.value);
+});
 
-            const panel = document.createElement('div');
-            panel.className = 'custom-select-panel';
-            panel.setAttribute('role', 'listbox');
-            wrapper.appendChild(panel);
+// ---------------------------------------------------------------------------
+// DOMContentLoaded — Initialize the application
+// ---------------------------------------------------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+  initAuth();
+  initCustomSelects();
+  updateDateTimeAndShift();
+  loadDataFromAPI();
 
-            const labelEl = trigger.querySelector('.custom-select-trigger-label');
-
-            function renderLabel() {
-                const opt = selectEl.options[selectEl.selectedIndex];
-                labelEl.textContent = opt ? opt.textContent : '';
-            }
-
-            function renderOptions() {
-                panel.innerHTML = '';
-                Array.from(selectEl.options).forEach((opt, idx) => {
-                    const item = document.createElement('div');
-                    item.className = 'custom-select-option' + (idx === selectEl.selectedIndex ? ' is-selected' : '');
-                    item.textContent = opt.textContent;
-                    item.setAttribute('role', 'option');
-                    item.addEventListener('click', () => {
-                        selectEl.selectedIndex = idx;
-                        selectEl.dispatchEvent(new Event('input', { bubbles: true }));
-                        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-                        renderLabel();
-                        closePanel();
-                    });
-                    panel.appendChild(item);
-                });
-            }
-
-            function openPanel() {
-                document.querySelectorAll('.custom-select-panel.is-open').forEach(p => {
-                    if (p !== panel) { p.classList.remove('is-open'); }
-                });
-                document.querySelectorAll('.custom-select-trigger.is-open').forEach(t => {
-                    if (t !== trigger) { t.classList.remove('is-open'); }
-                });
-                renderOptions();
-                panel.classList.add('is-open');
-                trigger.classList.add('is-open');
-            }
-
-            function closePanel() {
-                panel.classList.remove('is-open');
-                trigger.classList.remove('is-open');
-            }
-
-            trigger.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (panel.classList.contains('is-open')) { closePanel(); } else { openPanel(); }
-            });
-
-            // Lets existing app code re-sync the visible label after it changes
-            // selectEl.value directly (bypassing user interaction / 'change' events).
-            selectEl.__syncCustomSelect = function () {
-                renderLabel();
-                if (panel.classList.contains('is-open')) renderOptions();
-            };
-
-            // Keeps the dropdown in sync when options are populated at runtime
-            // (e.g. the Excel sheet/column selects in the Import modal).
-            const observer = new MutationObserver(() => {
-                renderLabel();
-                if (panel.classList.contains('is-open')) renderOptions();
-            });
-            observer.observe(selectEl, { childList: true });
-
-            renderLabel();
-        }
-
-        function initCustomSelects() {
-            document.querySelectorAll('select').forEach(wrapNativeSelect);
-            document.addEventListener('click', () => {
-                document.querySelectorAll('.custom-select-panel.is-open').forEach(p => p.classList.remove('is-open'));
-                document.querySelectorAll('.custom-select-trigger.is-open').forEach(t => t.classList.remove('is-open'));
-            });
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') {
-                    document.querySelectorAll('.custom-select-panel.is-open').forEach(p => p.classList.remove('is-open'));
-                    document.querySelectorAll('.custom-select-trigger.is-open').forEach(t => t.classList.remove('is-open'));
-                }
-            });
-        }
-
-        document.addEventListener('DOMContentLoaded', initCustomSelects);
-    })();
-
-// -----------------------------------------------------------------------------
-// Ambient particle background (requires three.min.js loaded first)
-// -----------------------------------------------------------------------------
-    (function () {
-        const canvas = document.getElementById('bg-particles');
-        if (!canvas) { console.warn('[bg-particles] Skipped: canvas element not found.'); return; }
-        if (typeof THREE === 'undefined') { console.warn('[bg-particles] Skipped: three.min.js did not load (likely blocked by an ad-blocker/extension or network error).'); return; }
-        if (window.innerWidth < 480) {
-            console.warn('[bg-particles] Skipped: viewport narrower than 480px.');
-            return;
-        }
-
-        let renderer;
-        try {
-            renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-        } catch (err) {
-            console.warn('[bg-particles] Skipped: WebGL context could not be created.', err);
-            return;
-        }
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.z = 8;
-
-        const COUNT = 140;
-        const positions = new Float32Array(COUNT * 3);
-        for (let i = 0; i < COUNT; i++) {
-            positions[i * 3] = (Math.random() - 0.5) * 20;
-            positions[i * 3 + 1] = (Math.random() - 0.5) * 12;
-            positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
-        }
-
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-        function currentAmberColor() {
-            const isDark = document.body.classList.contains('dark-mode');
-            return isDark ? 0xe8a04c : 0xb8791e;
-        }
-
-        // Draw a soft round glow sprite on an offscreen canvas so points render
-        // as star-like glows instead of Three.js's default flat squares.
-        function makeStarSprite() {
-            const size = 64;
-            const c = document.createElement('canvas');
-            c.width = c.height = size;
-            const ctx = c.getContext('2d');
-            const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-            grad.addColorStop(0, 'rgba(255,255,255,1)');
-            grad.addColorStop(0.2, 'rgba(255,255,255,0.9)');
-            grad.addColorStop(0.5, 'rgba(255,255,255,0.25)');
-            grad.addColorStop(1, 'rgba(255,255,255,0)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, size, size);
-            return new THREE.CanvasTexture(c);
-        }
-
-        const starSprite = makeStarSprite();
-
-        const material = new THREE.PointsMaterial({
-            color: currentAmberColor(),
-            map: starSprite,
-            size: 0.09,
-            sizeAttenuation: true,
-            transparent: true,
-            opacity: 0.55,
-            depthWrite: false,
-            alphaTest: 0.01,
-            blending: THREE.AdditiveBlending
-        });
-
-        const particles = new THREE.Points(geometry, material);
-        scene.add(particles);
-
-        // Keep particle color in sync if dark mode is toggled at runtime.
-        const darkModeObserver = new MutationObserver(() => {
-            material.color.setHex(currentAmberColor());
-        });
-        darkModeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
-        let twinkleT = 0;
-        let particleAnimFrameId = null;
-        function animate() {
-            particleAnimFrameId = requestAnimationFrame(animate);
-            particles.rotation.y += 0.0006;
-            particles.rotation.x += 0.0002;
-            const pos = geometry.attributes.position.array;
-            for (let i = 0; i < COUNT; i++) {
-                pos[i * 3 + 1] += 0.002;
-                if (pos[i * 3 + 1] > 6) pos[i * 3 + 1] = -6;
-            }
-            geometry.attributes.position.needsUpdate = true;
-
-            // Gentle twinkle: slowly pulse overall opacity so the stars feel alive
-            // rather than static dots.
-            twinkleT += 0.01;
-            material.opacity = 0.45 + Math.sin(twinkleT) * 0.15;
-
-            renderer.render(scene, camera);
-        }
-        animate();
-        console.info('[bg-particles] Running OK.');
-
-        // Pause the render loop when the tab is backgrounded (Page Visibility API) —
-        // purely decorative, so no reason to burn CPU/battery while unseen. Resumes
-        // cleanly on return since animate() re-arms its own rAF chain.
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                if (particleAnimFrameId !== null) {
-                    cancelAnimationFrame(particleAnimFrameId);
-                    particleAnimFrameId = null;
-                }
-            } else if (particleAnimFrameId === null) {
-                animate();
-            }
-        });
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-    })();
+  const savedUserName = localStorage.getItem('userName');
+  if (savedUserName) userNameInput.value = savedUserName;
+});

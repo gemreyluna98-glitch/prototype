@@ -166,9 +166,9 @@
             </div>
         </div>
 
-    <div id="varianceModal" class="modal">
+    <div id="varianceModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="varianceModalTitle">
         <div class="modal-content" style="max-width: 800px;">
-            <h2><i class="fas fa-balance-scale"></i> Inventory Variance Tracker</h2>
+            <h2 id="varianceModalTitle"><i class="fas fa-balance-scale"></i> Inventory Variance Tracker</h2>
             <p>Upload a <strong>System Backup Excel File (Old)</strong> to compare against the current system inventory.</p>
 
             <div class="item-input">
@@ -234,9 +234,9 @@
         </div>
     </div>
 
-    <div id="passwordModal" class="modal">
+    <div id="passwordModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="passwordModalTitle">
         <div class="modal-content" style="max-width: 400px;">
-            <h2>Unlock System</h2>
+            <h2 id="passwordModalTitle">Unlock System</h2>
             <div class="item-input">
                 <label for="systemPasswordInput">Enter Password:</label>
                 <input type="password" id="systemPasswordInput" placeholder="******">
@@ -248,10 +248,10 @@
             </div>
         </div>
     </div>
-    <div id="importDataModal" class="modal"> <div class="modal-content"> <h2>Import Data from Excel</h2> <div class="item-input"> <label for="excelSheetSelect">Select Sheet:</label> <select id="excelSheetSelect"></select> </div> <div class="item-input"> <label for="stockingQtyDateSelectModal">Select Stocking Qty Column (Optional):</label> <select id="stockingQtyDateSelectModal"></select> </div> <div id="importErrorMessageDiv" class="error-message"></div> <div class="modal-actions"> <button id="confirmImportButton">Import</button> <button id="cancelImportButton">Cancel</button> </div> </div> </div>
-    <div id="editBreakdownModal" class="modal"> <div class="modal-content"> <h2>Edit Item Details</h2> <p id="editBreakdownItemCode" class="edit-breakdown-item-code"></p> <div class="item-input" id="stockingQtyFieldGroup"> <label for="editBreakdownInput">Stocking Qty:</label> <input type="text" id="editBreakdownInput"> </div> <div id="editBreakdownPreview" class="edit-breakdown-preview"></div> <div id="dynamicRemarksContainer"></div> <div class="modal-actions"> <button id="viewDetailedReportButton" style="background-color:#3b82f6;"><i class="fas fa-chart-bar"></i> Detailed Report</button> <button id="saveBreakdownButton">Save</button> <button id="cancelBreakdownButton">Cancel</button> <button id="deleteItemInModalButton">Delete Item</button> </div> </div> </div>
+    <div id="importDataModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="importDataModalTitle"> <div class="modal-content"> <h2>Import Data from Excel</h2> <div class="item-input"> <label for="excelSheetSelect">Select Sheet:</label> <select id="excelSheetSelect"></select> </div> <div class="item-input"> <label for="stockingQtyDateSelectModal">Select Stocking Qty Column (Optional):</label> <select id="stockingQtyDateSelectModal"></select> </div> <div id="importErrorMessageDiv" class="error-message"></div> <div class="modal-actions"> <button id="confirmImportButton">Import</button> <button id="cancelImportButton">Cancel</button> </div> </div> </div>
+    <div id="editBreakdownModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editBreakdownModalTitle"> <div class="modal-content"> <h2>Edit Item Details</h2> <p id="editBreakdownItemCode" class="edit-breakdown-item-code"></p> <div class="item-input" id="stockingQtyFieldGroup"> <label for="editBreakdownInput">Stocking Qty:</label> <input type="text" id="editBreakdownInput"> </div> <div id="editBreakdownPreview" class="edit-breakdown-preview"></div> <div id="dynamicRemarksContainer"></div> <div class="modal-actions"> <button id="viewDetailedReportButton" style="background-color:#3b82f6;"><i class="fas fa-chart-bar"></i> Detailed Report</button> <button id="saveBreakdownButton">Save</button> <button id="cancelBreakdownButton">Cancel</button> <button id="deleteItemInModalButton">Delete Item</button> </div> </div> </div>
 
-    <div id="itemDetailedReportModal" class="modal">
+    <div id="itemDetailedReportModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="itemDetailedReportModalTitle">
         <div class="modal-content" style="max-width: 900px;">
             <h2><i class="fas fa-history"></i> Detailed Transaction Report — <span id="itemReportCode"></span></h2>
             <div id="itemReportSummary"></div>
@@ -276,7 +276,7 @@
             </div>
         </div>
     </div>
-        <div id="fileOpsModal" class="modal">
+        <div id="fileOpsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="fileOpsModalTitle">
         <div class="modal-content">
             <h2>File Operations</h2>
             <p>Pumili ng aksyon na nais mong gawin.</p>
@@ -332,7 +332,7 @@
     <div id="toastStack" aria-live="polite"></div>
 
     <!-- Reusable glass-styled alert/confirm modal (replaces native alert()/confirm()) -->
-    <div id="glassDialogModal" class="modal">
+    <div id="glassDialogModal" class="modal" role="alertdialog" aria-modal="true" aria-labelledby="glassDialogMessage">
         <div class="modal-content glass-dialog-content">
             <p id="glassDialogMessage" class="glass-dialog-message"></p>
             <div class="modal-actions glass-dialog-actions">
@@ -342,10 +342,10 @@
         </div>
     </div>
 
-    <div id="clearChoiceModal" class="modal"> <div class="modal-content"> <h2>Clear Options</h2> <p>Pumili ng aksyon na nais mong gawin.</p> <div class="modal-actions" style="justify-content: center;"> <button id="triggerClearAllButton"><i class="fas fa-exclamation-triangle"></i> Clear All Inventory</button> <button id="triggerBulkClearButton"><i class="fas fa-eraser"></i> Bulk Clear Item Quantities</button> </div> <div class="modal-actions"> <button id="cancelClearChoice">Cancel</button> </div> </div> </div>
-    <div id="bulkClearQtyModal" class="modal"> <div class="modal-content"> <h2>Bulk Clear Stocking Quantities</h2> <div class="filter-section" id="bulkClearFilterSection"> <div class="filter-header"><i class="fas fa-filter"></i> Filter Items</div> <div class="filter-group"> <label for="itemTypeFilter_bulk"><i class="fas fa-box"></i> Item Type:</label> <select id="itemTypeFilter_bulk"> <option value="ALL">All</option><option value="LBL">Labels</option><option value="CTN">Carton</option><option value="PLASTIC">Plastic</option><option value="OTHERS">Other</option> </select> </div> <div class="filter-group"> <label for="remarksFilter_bulk"><i class="fas fa-comment"></i> Remarks:</label> <select id="remarksFilter_bulk"> <option value="ALL">All</option><option value="HOLD">Hold</option><option value="APPROVED">Approved</option><option value="FIRSTOUT_OLD">First Out/Old</option><option value="NO_REMARK">No Remark</option><option value="OTHER_REMARKS">Other</option> </select> </div> <div class="filter-group"> <label for="dataPresenceFilter_bulk"><i class="fas fa-database"></i> Qty Data:</label> <select id="dataPresenceFilter_bulk"> <option value="ALL">All</option><option value="WITH_DATA">With Data</option><option value="WITHOUT_DATA">No Data</option> </select> </div> </div> <div class="bulk-select-actions"> <button id="bulkSelectAll">Select All</button> <button id="bulkDeselectAll">Deselect All</button> </div> <div id="bulkClearList"></div> <div id="bulkClearErrorMessage" class="error-message"></div> <div class="modal-actions"> <button id="confirmBulkClearButton">Clear Selected Quantities</button> <button id="cancelBulkClear">Cancel</button> </div> </div> </div>
+    <div id="clearChoiceModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="clearChoiceModalTitle"> <div class="modal-content"> <h2>Clear Options</h2> <p>Pumili ng aksyon na nais mong gawin.</p> <div class="modal-actions" style="justify-content: center;"> <button id="triggerClearAllButton"><i class="fas fa-exclamation-triangle"></i> Clear All Inventory</button> <button id="triggerBulkClearButton"><i class="fas fa-eraser"></i> Bulk Clear Item Quantities</button> </div> <div class="modal-actions"> <button id="cancelClearChoice">Cancel</button> </div> </div> </div>
+    <div id="bulkClearQtyModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="bulkClearQtyModalTitle"> <div class="modal-content"> <h2>Bulk Clear Stocking Quantities</h2> <div class="filter-section" id="bulkClearFilterSection"> <div class="filter-header"><i class="fas fa-filter"></i> Filter Items</div> <div class="filter-group"> <label for="itemTypeFilter_bulk"><i class="fas fa-box"></i> Item Type:</label> <select id="itemTypeFilter_bulk"> <option value="ALL">All</option><option value="LBL">Labels</option><option value="CTN">Carton</option><option value="PLASTIC">Plastic</option><option value="OTHERS">Other</option> </select> </div> <div class="filter-group"> <label for="remarksFilter_bulk"><i class="fas fa-comment"></i> Remarks:</label> <select id="remarksFilter_bulk"> <option value="ALL">All</option><option value="HOLD">Hold</option><option value="APPROVED">Approved</option><option value="FIRSTOUT_OLD">First Out/Old</option><option value="NO_REMARK">No Remark</option><option value="OTHER_REMARKS">Other</option> </select> </div> <div class="filter-group"> <label for="dataPresenceFilter_bulk"><i class="fas fa-database"></i> Qty Data:</label> <select id="dataPresenceFilter_bulk"> <option value="ALL">All</option><option value="WITH_DATA">With Data</option><option value="WITHOUT_DATA">No Data</option> </select> </div> </div> <div class="bulk-select-actions"> <button id="bulkSelectAll">Select All</button> <button id="bulkDeselectAll">Deselect All</button> </div> <div id="bulkClearList"></div> <div id="bulkClearErrorMessage" class="error-message"></div> <div class="modal-actions"> <button id="confirmBulkClearButton">Clear Selected Quantities</button> <button id="cancelBulkClear">Cancel</button> </div> </div> </div>
 
-    <div id="bulkWithdrawModal" class="modal">
+    <div id="bulkWithdrawModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="bulkWithdrawModalTitle">
         <div class="modal-content" style="max-width:650px;">
             <h2><i class="fas fa-dolly-flatbed"></i> Bulk Withdraw Stock</h2>
 
@@ -373,7 +373,7 @@
         </div>
     </div>
 
-    <div id="bulkDeliveriesModal" class="modal">
+    <div id="bulkDeliveriesModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="bulkDeliveriesModalTitle">
         <div class="modal-content" style="max-width:650px;">
             <h2><i class="fas fa-shipping-fast"></i> Bulk Deliveries</h2>
 
@@ -435,7 +435,7 @@
     <!-- Ambient particle background (glass + glow theme). Purely decorative — does not
          touch any inventory logic above. Skips only on very narrow viewports to save
          battery; runs regardless of the OS/browser reduce-motion setting. -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/particles.js"></script>
+    <script type="module" src="js/app.js"></script>
 </body>
 </html>
