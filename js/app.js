@@ -58,6 +58,7 @@ import {
   updateDarkModeIcon,
   toggleDarkMode,
   updateDateTimeAndShift,
+  toggleShift,
   generateBackupFilename,
   generateReportFilename,
 } from './modules/ui.js';
@@ -111,6 +112,7 @@ const cancelFileOps = $('cancelFileOps');
 const currentDateInput = $('currentDate');
 const currentTimeInput = $('currentTime');
 const currentShiftSelect = $('currentShift');
+const shiftToggleButton = $('shiftToggleButton');
 const userNameInput = $('userName');
 const clearChoiceModal = $('clearChoiceModal');
 const triggerClearAllButton = $('triggerClearAllButton');
@@ -1738,6 +1740,8 @@ if (simplifyBreakdownCheckbox) {
 userNameInput.addEventListener('input', () => {
   localStorage.setItem('userName', userNameInput.value);
 });
+
+shiftToggleButton.addEventListener('click', toggleShift);
 
 // ---------------------------------------------------------------------------
 // DOMContentLoaded — Initialize the application

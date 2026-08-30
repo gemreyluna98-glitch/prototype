@@ -127,7 +127,26 @@ export function updateDateTimeAndShift() {
   const hours = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
   document.getElementById('currentTime').value = `${hours}:${minutes}`;
-  document.getElementById('currentShift').value = now.getHours() >= 6 && now.getHours() < 18 ? 'Day Shift' : 'Night Shift';
+  const shift = now.getHours() >= 6 && now.getHours() < 18 ? 'Day Shift' : 'Night Shift';
+  setShiftValue(shift);
+}
+
+// --- Shift Toggle ---
+
+export function setShiftValue(shift) {
+  document.getElementById('currentShift').value = shift;
+  const label = document.getElementById('shiftToggleLabel');
+  if (label) label.textContent = shift;
+  const btn = document.getElementById('shiftToggleButton');
+  if (btn) {
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = shift === 'Day Shift' ? 'fas fa-sun' : 'fas fa-moon';
+  }
+}
+
+export function toggleShift() {
+  const current = document.getElementById('currentShift').value;
+  setShiftValue(current === 'Day Shift' ? 'Night Shift' : 'Day Shift');
 }
 
 // --- Filename Generation ---
