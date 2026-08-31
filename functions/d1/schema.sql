@@ -25,3 +25,14 @@ CREATE TABLE IF NOT EXISTS pallet_capacities (
   code TEXT PRIMARY KEY,
   capacity TEXT
 ) STRICT;
+
+-- Single-active-session enforcement: one row (id=1) tracking whoever most
+-- recently completed a login. Every request's token is checked against
+-- session_id here; a mismatch means someone else logged in since, so the
+-- older device gets logged out on its next action.
+CREATE TABLE IF NOT EXISTS active_session (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  session_id TEXT NOT NULL,
+  issued_at TEXT NOT NULL,     -- ISO timestamp of login
+  device_label TEXT            -- e.g. "Chrome on Windows"
+) STRICT;

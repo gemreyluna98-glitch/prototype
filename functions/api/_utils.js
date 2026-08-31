@@ -39,6 +39,27 @@ export async function verifyAuth(request, env) {
   if (!result.valid) {
     return { ok: false, response: corsResponse(401, { error: 'Session expired or invalid. Please log in again.' }) };
   }
+
+  // Single-active-session check: if someone has logged in since this token
+  // was issued, this device's sid will no longer match the current one.
+  if (env.DB && result.sid) {
+    try {
+      const row = await env.DB.prepare('SELECT session_id FROM active_session WHERE id = 1').first();
+      if (row && row.session_id && row.session_id !== result.sid) {
+        return {
+          ok: false,
+          response: corsResponse(401, {
+            error: 'You were logged out because someone logged in from another device.',
+            reason: 'session_replaced',
+          }),
+        };
+      }
+    } catch {
+      // If the check itself fails (e.g. table not migrated yet), fail open on
+      // this specific check rather than locking everyone out.
+    }
+  }
+
   return { ok: true };
 }
 
@@ -123,10 +144,39 @@ function base64UrlToBytes(b64url) {
 }
 
 /**
- * Generate a session token: base64url(expiry text).base64url(raw hmac signature bytes)
+ * Parse a short human-readable device label from a User-Agent string, e.g.
+ * "Chrome on Windows". Best-effort only — used for the single-session
+ * conflict warning, not for any security decision.
  */
-export async function createSessionToken(env) {
+export function parseDeviceLabel(userAgent) {
+  if (!userAgent) return 'Unknown device';
+  const ua = userAgent;
+  let browser = 'Unknown browser';
+  if (/Edg\//.test(ua)) browser = 'Edge';
+  else if (/OPR\/|Opera/.test(ua)) browser = 'Opera';
+  else if (/Chrome\//.test(ua)) browser = 'Chrome';
+  else if (/CriOS\//.test(ua)) browser = 'Chrome';
+  else if (/Firefox\//.test(ua)) browser = 'Firefox';
+  else if (/Safari\//.test(ua) && /Version\//.test(ua)) browser = 'Safari';
+
+  let os = 'Unknown OS';
+  if (/Windows/.test(ua)) os = 'Windows';
+  else if (/iPhone|iPad|iPod/.test(ua)) os = /iPad/.test(ua) ? 'iPadOS' : 'iOS';
+  else if (/Mac OS X/.test(ua)) os = 'macOS';
+  else if (/Android/.test(ua)) os = 'Android';
+  else if (/Linux/.test(ua)) os = 'Linux';
+
+  return `${browser} on ${os}`;
+}
+
+/**
+ * Generate a session token: base64url(JSON payload).base64url(raw hmac signature bytes)
+ * Payload includes both the expiry and a random session ID, so verifyAuth can
+ * detect when a *different* login has since taken over (single-session enforcement).
+ */
+export async function createSessionToken(env, sid = crypto.randomUUID()) {
   const expiry = Date.now() + TOKEN_EXPIRY_MS;
+  const payloadStr = JSON.stringify({ exp: expiry, sid });
   const key = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(env.SESSION_SECRET || env.SYSTEM_PASSWORD),
@@ -134,19 +184,22 @@ export async function createSessionToken(env) {
     false,
     ['sign']
   );
-  const sigBuf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(String(expiry)));
-  return `${bytesToBase64Url(new TextEncoder().encode(String(expiry)))}.${bytesToBase64Url(new Uint8Array(sigBuf))}`;
+  const sigBuf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payloadStr));
+  const token = `${bytesToBase64Url(new TextEncoder().encode(payloadStr))}.${bytesToBase64Url(new Uint8Array(sigBuf))}`;
+  return { token, sid, expiry };
 }
 
 /**
- * Verify a session token. Returns { valid: true, expiry } or { valid: false }.
+ * Verify a session token. Returns { valid: true, expiry, sid } or { valid: false }.
  */
 export async function verifySessionToken(token, env) {
   if (!token || !token.includes('.')) return { valid: false };
   try {
-    const [b64Exp, b64Sig] = token.split('.');
-    const expiry = parseInt(new TextDecoder().decode(base64UrlToBytes(b64Exp)), 10);
-    if (isNaN(expiry) || Date.now() > expiry) return { valid: false };
+    const [b64Payload, b64Sig] = token.split('.');
+    const payloadStr = new TextDecoder().decode(base64UrlToBytes(b64Payload));
+    const payload = JSON.parse(payloadStr);
+    const expiry = payload.exp;
+    if (!expiry || isNaN(expiry) || Date.now() > expiry) return { valid: false };
 
     const key = await crypto.subtle.importKey(
       'raw',
@@ -156,8 +209,8 @@ export async function verifySessionToken(token, env) {
       ['verify']
     );
     const sigBytes = base64UrlToBytes(b64Sig);
-    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(String(expiry)));
-    return valid ? { valid: true, expiry } : { valid: false };
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(payloadStr));
+    return valid ? { valid: true, expiry, sid: payload.sid } : { valid: false };
   } catch {
     return { valid: false };
   }

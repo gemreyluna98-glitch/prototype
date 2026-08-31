@@ -9,10 +9,13 @@ import { showSaveIndicator } from './ui.js';
 // If the backend rejects a token (expired/invalid), clear it and force the
 // lock screen back up so the user re-enters their password rather than
 // silently failing on every request from then on.
-function handleSessionExpired() {
+function handleSessionExpired(reason) {
   clearStoredToken();
   state.isLocked = true;
   import('./auth.js').then(({ updateLockUI }) => updateLockUI());
+  return reason === 'session_replaced'
+    ? 'You were logged out because someone logged in from another device.'
+    : 'Your session expired. Please unlock again.';
 }
 
 export async function saveDataToAPI(dataToSave, invOptions = {}, newHistoryEntries = null, palletCapOptions = {}) {
@@ -78,9 +81,7 @@ export async function saveDataToAPI(dataToSave, invOptions = {}, newHistoryEntri
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       if (response.status === 401) {
-        document.getElementById('errorMessage').textContent =
-          'Save Error: Your session expired. Please unlock again.';
-        handleSessionExpired();
+        document.getElementById('errorMessage').textContent = `Save Error: ${handleSessionExpired(errorData.reason)}`;
       } else {
         const details = errorData.error || errorData.details || response.statusText;
         throw new Error(`Failed to save to database. Details: ${details}`);
@@ -112,9 +113,7 @@ export async function loadDataFromAPI() {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       if (response.status === 401) {
-        document.getElementById('errorMessage').textContent =
-          'Load Error: Your session expired. Please unlock again.';
-        handleSessionExpired();
+        document.getElementById('errorMessage').textContent = `Load Error: ${handleSessionExpired(errorData.reason)}`;
       } else {
         const details = errorData.error || errorData.details || response.statusText;
         throw new Error(`Failed to fetch from database. Details: ${details}`);
