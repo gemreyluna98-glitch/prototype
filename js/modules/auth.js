@@ -109,7 +109,8 @@ export async function handleUnlock(force = false) {
           : 'an unknown time';
         errorMsg.textContent = '';
         const proceed = await customConfirm(
-          `Someone is already logged in on ${data.deviceLabel} since ${when}. Log in anyway and end that session?`
+          `Someone is already logged in on ${data.deviceLabel} since ${when}. Log in anyway and end that session?`,
+          { allowEnterConfirm: true }
         );
         if (proceed) {
           await handleUnlock(true);
@@ -138,11 +139,18 @@ export async function handleUnlock(force = false) {
         state.pendingAction = null;
         action();
       }
-    } else {
+    } else if (response.status === 429) {
+      errorMsg.style.color = 'red';
+      errorMsg.textContent = 'Too many attempts. Please wait about a minute before trying again.';
+    } else if (response.status === 401) {
       errorMsg.style.color = 'red';
       errorMsg.textContent = 'Incorrect Password!';
       document.getElementById('systemPasswordInput').value = '';
       document.getElementById('systemPasswordInput').focus();
+    } else {
+      const errData = await response.json().catch(() => ({}));
+      errorMsg.style.color = 'red';
+      errorMsg.textContent = errData.error || `Unexpected error (${response.status}). Please try again.`;
     }
   } catch (error) {
     console.error('Verification error', error);

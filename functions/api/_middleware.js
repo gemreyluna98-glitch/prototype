@@ -6,7 +6,10 @@
 import { corsHeaders } from './_utils.js';
 
 const RATE_LIMIT_MAX = 30;          // max requests per window for general POST endpoints
-const AUTH_RATE_LIMIT_MAX = 5;      // max password attempts per window — brute-force target, kept tight
+const AUTH_RATE_LIMIT_MAX = 10;     // max password-endpoint requests per window — a single login with an
+                                     // active-session conflict takes 2 requests (check + confirm), so this
+                                     // allows ~5 real login attempts per minute while still being tight
+                                     // enough to block brute-force guessing.
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute window
 
 // In-memory rate limit store (resets on cold start, acceptable for this use case)

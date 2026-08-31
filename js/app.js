@@ -380,6 +380,31 @@ function initCustomSelects() {
   });
 }
 
+// --- Escape-to-Cancel for simple modals ---
+// Pressing Escape triggers the same Cancel button the user would otherwise
+// click — safe to do broadly since Cancel never destroys data, only closes
+// the modal without applying changes.
+const escapeCancelableModals = [
+  { modalId: 'editBreakdownModal', cancelBtnId: 'cancelBreakdownButton' },
+  { modalId: 'bulkDeliveriesModal', cancelBtnId: 'cancelBulkDelivery' },
+  { modalId: 'bulkWithdrawModal', cancelBtnId: 'cancelBulkWithdraw' },
+];
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  // If a confirm/alert dialog is currently open on top, let its own Escape
+  // handling (in glassDialog) take this keypress instead of also closing
+  // the modal underneath it in the same keystroke.
+  const glassDialogModal = document.getElementById('glassDialogModal');
+  if (glassDialogModal && glassDialogModal.style.display === 'block') return;
+  for (const { modalId, cancelBtnId } of escapeCancelableModals) {
+    const modal = document.getElementById(modalId);
+    if (modal && modal.style.display === 'block') {
+      document.getElementById(cancelBtnId)?.click();
+      break;
+    }
+  }
+});
+
 // --- Bulk Delivery List Rendering ---
 function renderBulkList() {
   if (!state.pendingBulkDeliveries.length) {

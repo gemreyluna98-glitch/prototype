@@ -55,7 +55,7 @@ export function showToast(message, type = 'info') {
 
 // --- Glass Dialog (replaces native alert/confirm) ---
 
-function glassDialog(message, { showCancel }) {
+function glassDialog(message, { showCancel, allowEnterConfirm = false } = {}) {
   return new Promise(resolve => {
     const modal = document.getElementById('glassDialogModal');
     const msgEl = document.getElementById('glassDialogMessage');
@@ -69,10 +69,25 @@ function glassDialog(message, { showCancel }) {
       modal.style.display = 'none';
       okBtn.onclick = null;
       cancelBtn.onclick = null;
+      document.removeEventListener('keydown', onKeyDown);
       resolve(result);
+    }
+    function onKeyDown(e) {
+      // Enter-to-confirm is opt-in (see customConfirm's allowEnterConfirm) —
+      // most confirmations here are destructive (Clear All, overwrite on
+      // import, etc.) and should still require a deliberate click. Escape-
+      // to-cancel is always safe to offer, since cancelling never destroys
+      // anything.
+      if (allowEnterConfirm && e.key === 'Enter') {
+        e.preventDefault();
+        cleanup(true);
+      } else if (e.key === 'Escape' && showCancel) {
+        cleanup(false);
+      }
     }
     okBtn.onclick = () => cleanup(true);
     cancelBtn.onclick = () => cleanup(false);
+    document.addEventListener('keydown', onKeyDown);
   });
 }
 
@@ -80,8 +95,8 @@ export function customAlert(message) {
   return glassDialog(message, { showCancel: false });
 }
 
-export function customConfirm(message) {
-  return glassDialog(message, { showCancel: true });
+export function customConfirm(message, options = {}) {
+  return glassDialog(message, { showCancel: true, ...options });
 }
 
 // --- Button Loading State ---
