@@ -3,6 +3,34 @@
 // Toasts, glass dialog, dark mode, button loading, date/time, file naming.
 // =============================================================================
 
+// --- Cached / View-Only Mode Indicators ---
+
+function formatSyncedTimestamp(isoString) {
+  if (!isoString) return null;
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+}
+
+export function updateLastSyncedLabel(isoString) {
+  const label = document.getElementById('lastSyncedLabel');
+  if (!label) return;
+  const formatted = formatSyncedTimestamp(isoString);
+  label.textContent = formatted ? `Last synced: ${formatted}` : '';
+}
+
+export function showCacheModeBanner() {
+  const banner = document.getElementById('cacheModeBanner');
+  if (banner) banner.style.display = 'flex';
+}
+
+export function hideCacheModeBanner() {
+  const banner = document.getElementById('cacheModeBanner');
+  if (banner) banner.style.display = 'none';
+}
+
 // --- Toast Notifications ---
 
 export function showToast(message, type = 'info') {

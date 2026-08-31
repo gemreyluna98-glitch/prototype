@@ -1,5 +1,7 @@
-import { corsHeaders, verifyAuth } from './_utils.js';
+import { corsHeaders } from './_utils.js';
 
+// Intentionally public/unauthenticated — viewing the inventory no longer
+// requires a login (only editing does, via save-data.js + verifyAuth).
 export async function onRequestGet(context) {
   const { request, env } = context;
 
@@ -9,9 +11,6 @@ export async function onRequestGet(context) {
       { status: 500, headers: corsHeaders }
     );
   }
-
-  const auth = await verifyAuth(request, env);
-  if (!auth.ok) return auth.response;
 
   try {
     // Optional server-side pagination for transaction history (not yet used by

@@ -4,7 +4,7 @@
 
 import { state, clearStoredToken, getStoredToken } from './state.js';
 import { loadDataFromAPI } from './api.js';
-import { customConfirm, showToast } from './ui.js';
+import { customConfirm, showToast, showCacheModeBanner } from './ui.js';
 
 const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 const SESSION_CHECK_INTERVAL_MS = 30 * 1000; // 30 seconds
@@ -23,6 +23,7 @@ export function lockSystem() {
   document.querySelectorAll('.modal').forEach(m => (m.style.display = 'none'));
   clearStoredToken();
   stopSessionCheck();
+  showCacheModeBanner();
 }
 
 // --- Session Check Polling ---
@@ -59,6 +60,7 @@ async function runSessionCheck() {
       state.isLocked = true;
       updateLockUI();
       document.querySelectorAll('.modal').forEach(m => (m.style.display = 'none'));
+      showCacheModeBanner();
       showToast(
         replaced
           ? 'You were logged out because someone logged in from another device. The system is now locked.'

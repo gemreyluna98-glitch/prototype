@@ -200,7 +200,13 @@
             </div>
         </div>
     </div>
-        <h2>Current Inventory</h2>
+        <div class="inventory-heading-row">
+            <h2>Current Inventory</h2>
+            <span id="lastSyncedLabel" class="last-synced-label"></span>
+        </div>
+        <div id="cacheModeBanner" class="cache-mode-banner" style="display: none;">
+            <i class="fas fa-eye"></i> Viewing last synced data (view-only). Log in to edit or get the latest data.
+        </div>
         <div class="table-container">
             <table>
                 <thead> <tr> <th>MATERIAL CODE</th> <th>Stocking Qty</th> <th class="column-hidden">Total per Row</th> <th class="column-hidden">Remarks</th> </tr> </thead>

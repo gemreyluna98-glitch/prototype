@@ -118,6 +118,22 @@ h2 {
   font-weight: 700;
   letter-spacing: -0.005em;
 }
+.inventory-heading-row { text-align: center; margin-bottom: 4px; }
+.inventory-heading-row h2 { margin-bottom: 2px; }
+.last-synced-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+}
+.cache-mode-banner {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: rgba(217, 119, 6, 0.12); border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #b45309; font-family: var(--font-mono); font-size: 0.85em; font-weight: 600;
+  padding: 8px 14px; border-radius: var(--radius-sm); margin-bottom: 12px;
+}
+body.dark-mode .cache-mode-banner { color: #fbbf24; background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.3); }
 .container > h1 {
   border-bottom: 1px solid var(--border-soft);
   padding-bottom: 16px;
