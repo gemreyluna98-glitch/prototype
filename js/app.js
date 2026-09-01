@@ -950,8 +950,13 @@ triggerClearAllButton.addEventListener('click', async () => {
       state.originalRowsOrder = [];
       state.rowsByCode = new Map();
       await applyFiltersAndSort();
-      saveInventoryData();
+      const result = await saveInventoryData();
       logTransaction('CLEAR ALL', '-', 'All inventory data cleared.');
+      if (!result.success) {
+        showToast(`Hindi na-save: ${result.error} I-retry sa itaas.`, 'error');
+        return;
+      }
+      showToast('All inventory data cleared.', 'success');
     }
     clearChoiceModal.style.display = 'none';
   } finally {
@@ -1063,7 +1068,12 @@ confirmImportButton.addEventListener('click', async () => {
     await applyFiltersAndSort();
     const importLog = logTransaction('IMPORT', '-', `Imported ${importedCount} items from sheet: ${sheetName}.`, null, true);
     prependHistoryLog(importLog);
-    saveDataToAPI(['inventoryData', 'transactionHistory'], {}, [importLog]);
+    const result = await saveDataToAPI(['inventoryData', 'transactionHistory'], {}, [importLog]);
+    if (!result.success) {
+      showToast(`Hindi na-save: ${result.error} I-retry sa itaas.`, 'error');
+      return;
+    }
+    showToast(`Successfully imported ${importedCount} item(s).`, 'success');
     importDataModal.style.display = 'none';
   } finally {
     setButtonLoading(confirmImportButton, false);
@@ -1143,33 +1153,43 @@ editBreakdownPreview.addEventListener('click', function (event) {
   }, 2200);
 });
 
-saveBreakdownButton.addEventListener('click', () => {
+saveBreakdownButton.addEventListener('click', async () => {
   if (!state.currentEditingRow) return;
-  const oldStockingQty = state.currentEditingRow.dataset.stockingQty;
-  const oldRemarks = JSON.parse(state.currentEditingRow.dataset.remarks || '[]');
-  const oldLocations = JSON.parse(state.currentEditingRow.dataset.locations || '[]');
-  const newStockingQty = editBreakdownInput.value;
-  const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim());
-  const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim());
-  state.currentEditingRow.dataset.stockingQty = newStockingQty;
-  state.currentEditingRow.dataset.remarks = JSON.stringify(newRemarks);
-  state.currentEditingRow.dataset.locations = JSON.stringify(newLocations);
-  const formattedBreakdown = formatStockingQty(newStockingQty);
-  const total = calculateSingleStockingQtyTotal(formattedBreakdown);
-  state.currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations);
-  state.currentEditingRow.cells[2].textContent = total.toLocaleString();
-  state.currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | ');
-  saveInventoryData([state.currentEditingRow.dataset.code]);
-  logTransaction('EDIT ITEM', state.currentEditingRow.dataset.code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, {
-    oldQty: oldStockingQty,
-    oldRemarks,
-    oldLocations,
-    newQty: newStockingQty,
-    newRemarks,
-    newLocations,
-  });
-  showToast('Item updated.', 'success');
-  editBreakdownModal.style.display = 'none';
+  setButtonLoading(saveBreakdownButton, true);
+  try {
+    const oldStockingQty = state.currentEditingRow.dataset.stockingQty;
+    const oldRemarks = JSON.parse(state.currentEditingRow.dataset.remarks || '[]');
+    const oldLocations = JSON.parse(state.currentEditingRow.dataset.locations || '[]');
+    const newStockingQty = editBreakdownInput.value;
+    const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim());
+    const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim());
+    const code = state.currentEditingRow.dataset.code;
+    state.currentEditingRow.dataset.stockingQty = newStockingQty;
+    state.currentEditingRow.dataset.remarks = JSON.stringify(newRemarks);
+    state.currentEditingRow.dataset.locations = JSON.stringify(newLocations);
+    const formattedBreakdown = formatStockingQty(newStockingQty);
+    const total = calculateSingleStockingQtyTotal(formattedBreakdown);
+    state.currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations);
+    state.currentEditingRow.cells[2].textContent = total.toLocaleString();
+    state.currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | ');
+    const result = await saveInventoryData([code]);
+    logTransaction('EDIT ITEM', code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, {
+      oldQty: oldStockingQty,
+      oldRemarks,
+      oldLocations,
+      newQty: newStockingQty,
+      newRemarks,
+      newLocations,
+    });
+    if (!result.success) {
+      showToast(`Hindi na-save: ${result.error} I-retry sa itaas.`, 'error');
+      return;
+    }
+    showToast('Item updated.', 'success');
+    editBreakdownModal.style.display = 'none';
+  } finally {
+    setButtonLoading(saveBreakdownButton, false);
+  }
 });
 
 editBreakdownModal.addEventListener('keydown', function (event) {

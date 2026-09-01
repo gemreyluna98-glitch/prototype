@@ -16,7 +16,7 @@ import {
   renderBreakdownCellHtml,
   escapeHtml,
 } from './inventory.js';
-import { saveInventoryData, saveHistoryData, saveDataToAPI } from './api.js';
+import { saveHistoryData, saveDataToAPI } from './api.js';
 import { logTransaction, renderHistoryLog, prependHistoryLog } from './history.js';
 import { showToast, customConfirm, generateBackupFilename, generateReportFilename } from './ui.js';
 
@@ -350,7 +350,8 @@ export function importBackupFile(file) {
       });
       const { applyFiltersAndSort } = await import('./inventory.js');
       await applyFiltersAndSort();
-      saveInventoryData();
+
+      const dataToSave = ['inventoryData'];
 
       const histSheet = workbook.Sheets['Transaction_History'];
       if (histSheet) {
@@ -372,7 +373,7 @@ export function importBackupFile(file) {
           return entry;
         });
         renderHistoryLog();
-        saveHistoryData();
+        dataToSave.push('transactionHistory');
       }
 
       const capSheet = workbook.Sheets['Pallet_Capacities'];
@@ -382,10 +383,27 @@ export function importBackupFile(file) {
         capData.forEach(c => {
           state.palletCapacities[c['Material Code']] = c['Pallet Capacity'];
         });
-        saveDataToAPI(['palletCapacities']);
+        dataToSave.push('palletCapacities');
       }
 
-      logTransaction('RESTORE', '-', `Full inventory state restored from ${file.name}.`);
+      // Everything above just updates in-memory state — nothing is
+      // persisted until this single combined save, so inventory, history,
+      // and pallet capacities all land in one request/one D1 batch instead
+      // of three separate round trips.
+      const result = await saveDataToAPI(dataToSave);
+      if (!result.success) {
+        showToast(`Hindi na-save ang restore: ${result.error} I-retry sa itaas.`, 'error');
+        return;
+      }
+
+      const restoreLog = logTransaction('RESTORE', '-', `Full inventory state restored from ${file.name}.`, null, true);
+      prependHistoryLog(restoreLog);
+      const logResult = await saveHistoryData([restoreLog]);
+      if (!logResult.success) {
+        showToast(`Na-restore na ang data, pero hindi na-save ang RESTORE log entry: ${logResult.error} I-retry sa itaas.`, 'error');
+        return;
+      }
+      showToast('Backup restored successfully.', 'success');
     } catch (err) {
       showToast('Error reading the backup file.', 'error');
       console.error(err);
