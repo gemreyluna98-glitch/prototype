@@ -66,13 +66,30 @@ export async function onRequestPost(context) {
       // Full-replace path (Restore, Import, Clear All).
       // sort_order = position in the incoming array, so export order matches
       // exactly what was loaded/imported.
-      statements.push(env.DB.prepare('DELETE FROM items'));
+      //
+      // Insert-then-delete (not delete-then-insert): the whole batch can be
+      // split across several env.DB.batch() calls below when it's large
+      // (each batch() is its own atomic transaction, but the chunks
+      // together are not one big transaction). Deleting everything first
+      // would mean a failure partway through the inserts leaves the
+      // inventory empty. Upserting the new rows first and only removing
+      // stale codes afterward means a mid-way failure just leaves some old
+      // rows temporarily un-cleaned-up — never data loss.
+      const existingCodesResult = await env.DB.prepare('SELECT code FROM items').all();
+      const newCodeSet = new Set(inventoryData.map(item => item.code));
+      const staleCodes = existingCodesResult.results
+        .map(r => r.code)
+        .filter(code => !newCodeSet.has(code));
+
       inventoryData.forEach((item, index) => {
         statements.push(
           env.DB.prepare('INSERT OR REPLACE INTO items (code, stocking_qty, remarks, locations, sort_order) VALUES (?, ?, ?, ?, ?)')
             .bind(item.code, item.stockingQty ?? '', item.remarks ?? '[]', item.locations ?? '[]', index)
         );
       });
+      for (const code of staleCodes) {
+        statements.push(env.DB.prepare('DELETE FROM items WHERE code = ?').bind(code));
+      }
     } else if (changedItems !== undefined || deletedCodes !== undefined) {
       // Partial path: single edit, bulk delivery/withdraw, bulk clear qty.
       // Uses an UPSERT that preserves the existing sort_order on updates
@@ -111,7 +128,16 @@ export async function onRequestPost(context) {
       }
     } else if (transactionHistory !== undefined) {
       // Full-replace path (Restore, Clear History).
-      statements.push(env.DB.prepare('DELETE FROM transaction_history'));
+      // Insert-then-delete, same reasoning as inventoryData above.
+      // transaction_history has no natural key to upsert on (unlike items'
+      // code), so instead of deleting first we record the current max id,
+      // insert all the new rows (which get fresh autoincrement ids above
+      // that mark), and only delete the old rows (id <= the mark)
+      // afterward. A failure partway through the inserts just leaves the
+      // old history intact instead of losing it.
+      const maxIdRow = await env.DB.prepare('SELECT COALESCE(MAX(id), 0) AS maxId FROM transaction_history').first();
+      const oldMaxId = maxIdRow?.maxId ?? 0;
+
       const chronological = transactionHistory.slice().reverse(); // newest-first -> oldest-first for correct id ordering
       for (const log of chronological) {
         statements.push(
@@ -119,6 +145,7 @@ export async function onRequestPost(context) {
             .bind(log.timestamp, log.action, log.code ?? '-', log.details ?? '', log.meta ? JSON.stringify(log.meta) : null)
         );
       }
+      statements.push(env.DB.prepare('DELETE FROM transaction_history WHERE id <= ?').bind(oldMaxId));
     }
 
     if (changedPalletCapacity !== undefined) {
@@ -130,19 +157,35 @@ export async function onRequestPost(context) {
       );
     } else if (palletCapacities !== undefined) {
       // Full-replace path (Restore).
-      statements.push(env.DB.prepare('DELETE FROM pallet_capacities'));
+      // Insert-then-delete, same reasoning as inventoryData above — upsert
+      // the new rows first, then remove whichever existing codes aren't in
+      // the new set.
+      const existingCapCodesResult = await env.DB.prepare('SELECT code FROM pallet_capacities').all();
+      const newCapCodeSet = new Set(Object.keys(palletCapacities));
+      const staleCapCodes = existingCapCodesResult.results
+        .map(r => r.code)
+        .filter(code => !newCapCodeSet.has(code));
+
       for (const code of Object.keys(palletCapacities)) {
         statements.push(
           env.DB.prepare('INSERT OR REPLACE INTO pallet_capacities (code, capacity) VALUES (?, ?)')
             .bind(code, palletCapacities[code])
         );
       }
+      for (const code of staleCapCodes) {
+        statements.push(env.DB.prepare('DELETE FROM pallet_capacities WHERE code = ?').bind(code));
+      }
     }
 
     if (statements.length > 0) {
       // D1 caps batch() at 10,000 statements per request — chunk defensively
-      // so a large Import/Restore (which can be 1 DELETE + N INSERTs) never
-      // hits that ceiling, even well before N gets anywhere close to it.
+      // so a large Import/Restore (which can be N INSERTs + a handful of
+      // stale-row DELETEs) never hits that ceiling. Each chunk is still its
+      // own atomic transaction; see the insert-then-delete comments above
+      // for why the *ordering* within `statements` (all upserts before any
+      // deletes, for each of items/history/pallet_capacities) matters —
+      // it's what keeps a failure partway through from losing data even
+      // though the whole operation isn't one single transaction.
       const BATCH_CHUNK_SIZE = 5000;
       for (let i = 0; i < statements.length; i += BATCH_CHUNK_SIZE) {
         await env.DB.batch(statements.slice(i, i + BATCH_CHUNK_SIZE));

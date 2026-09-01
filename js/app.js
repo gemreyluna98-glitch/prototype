@@ -7,6 +7,7 @@
 // Module Imports
 // ---------------------------------------------------------------------------
 import { state } from './modules/state.js';
+import { openModal, closeModal } from './modules/modal-stack.js';
 import { saveDataToAPI, loadDataFromAPI, saveInventoryData, saveHistoryData, retrySaveQueue } from './modules/api.js';
 import { resetInactivityTimer, lockSystem, showPasswordModal, handleUnlock, updateLockUI, checkAccess, initAuth } from './modules/auth.js';
 import {
@@ -216,7 +217,7 @@ function attachSearchableCombobox(input, { getOptions, onSelect, maxResults = 50
         : currentOptions
             .map(
               (opt, i) =>
-                `<div class="combobox-option${i === 0 ? ' is-highlighted' : ''}" data-idx="${i}"><span class="combobox-option-value">${escapeHtml(opt.value)}</span>${opt.label ? `<span class="combobox-option-label">${opt.label}</span>` : ''}</div>`
+                `<div class="combobox-option${i === 0 ? ' is-highlighted' : ''}" data-idx="${i}"><span class="combobox-option-value">${escapeHtml(opt.value)}</span>${opt.label ? `<span class="combobox-option-label">${escapeHtml(opt.label)}</span>` : ''}</div>`
             )
             .join('');
     panel.style.display = 'block';
@@ -380,30 +381,12 @@ function initCustomSelects() {
   });
 }
 
-// --- Escape-to-Cancel for simple modals ---
-// Pressing Escape triggers the same Cancel button the user would otherwise
-// click — safe to do broadly since Cancel never destroys data, only closes
-// the modal without applying changes.
-const escapeCancelableModals = [
-  { modalId: 'editBreakdownModal', cancelBtnId: 'cancelBreakdownButton' },
-  { modalId: 'bulkDeliveriesModal', cancelBtnId: 'cancelBulkDelivery' },
-  { modalId: 'bulkWithdrawModal', cancelBtnId: 'cancelBulkWithdraw' },
-];
-document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  // If a confirm/alert dialog is currently open on top, let its own Escape
-  // handling (in glassDialog) take this keypress instead of also closing
-  // the modal underneath it in the same keystroke.
-  const glassDialogModal = document.getElementById('glassDialogModal');
-  if (glassDialogModal && glassDialogModal.style.display === 'block') return;
-  for (const { modalId, cancelBtnId } of escapeCancelableModals) {
-    const modal = document.getElementById(modalId);
-    if (modal && modal.style.display === 'block') {
-      document.getElementById(cancelBtnId)?.click();
-      break;
-    }
-  }
-});
+// --- Escape-to-Cancel for modals ---
+// Handled centrally now — see js/modules/modal-stack.js. Every openModal()/
+// closeModal() call pushes/pops a shared stack, and a single listener there
+// always closes whichever modal is actually on top, so Escape works
+// correctly even when one modal is opened on top of another (e.g. the
+// Detailed Report modal opened from within the Edit Item modal).
 
 // --- Bulk Delivery List Rendering ---
 function renderBulkList() {
@@ -557,7 +540,7 @@ function handleFileSelect(file) {
         excelSheetSelect.appendChild(opt);
       });
       handleSheetChange();
-      importDataModal.style.display = 'block';
+      openModal('importDataModal');
       importErrorMessageDiv.textContent = '';
     } catch (err) {
       importErrorMessageDiv.textContent = 'Error reading file.';
@@ -867,17 +850,17 @@ historyLoadMoreButton.addEventListener('click', loadMoreHistoryRows);
 // ---------------------------------------------------------------------------
 fileOpsButton.addEventListener('click', () => {
   checkAccess(() => {
-    fileOpsModal.style.display = 'block';
+    openModal('fileOpsModal');
   });
 });
 cancelFileOps.addEventListener('click', () => {
-  fileOpsModal.style.display = 'none';
+  closeModal('fileOpsModal');
 });
 
 openImportModalButton.addEventListener('click', () => {
   checkAccess(async () => {
     await loadXLSX();
-    fileOpsModal.style.display = 'none';
+    closeModal('fileOpsModal');
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = '.xlsx, .xls';
@@ -888,8 +871,8 @@ openImportModalButton.addEventListener('click', () => {
 
 clearInventoryButton.addEventListener('click', () => {
   checkAccess(() => {
-    fileOpsModal.style.display = 'none';
-    clearChoiceModal.style.display = 'block';
+    closeModal('fileOpsModal');
+    openModal('clearChoiceModal');
   });
 });
 
@@ -914,7 +897,7 @@ clearHistoryButton.addEventListener('click', () => {
 backupButton.addEventListener('click', async () => {
   await loadXLSX();
   exportBackupFile();
-  fileOpsModal.style.display = 'none';
+  closeModal('fileOpsModal');
 });
 restoreButton.addEventListener('click', async () => {
   await loadXLSX();
@@ -923,23 +906,23 @@ restoreButton.addEventListener('click', async () => {
   fileInput.accept = '.xlsx, .xls';
   fileInput.onchange = e => importBackupFile(e.target.files[0]);
   fileInput.click();
-  fileOpsModal.style.display = 'none';
+  closeModal('fileOpsModal');
 });
 exportExcelButton.addEventListener('click', async () => {
   await loadXLSX();
   exportReportFile();
-  fileOpsModal.style.display = 'none';
+  closeModal('fileOpsModal');
 });
 printInventoryButton.addEventListener('click', () => {
   printInventory();
-  fileOpsModal.style.display = 'none';
+  closeModal('fileOpsModal');
 });
 
 // ---------------------------------------------------------------------------
 // Event Listeners — Clear Choice / Bulk Clear
 // ---------------------------------------------------------------------------
 cancelClearChoice.addEventListener('click', () => {
-  clearChoiceModal.style.display = 'none';
+  closeModal('clearChoiceModal');
 });
 
 triggerClearAllButton.addEventListener('click', async () => {
@@ -958,7 +941,7 @@ triggerClearAllButton.addEventListener('click', async () => {
       }
       showToast('All inventory data cleared.', 'success');
     }
-    clearChoiceModal.style.display = 'none';
+    closeModal('clearChoiceModal');
   } finally {
     setButtonLoading(triggerClearAllButton, false);
   }
@@ -970,8 +953,8 @@ triggerBulkClearButton.addEventListener('click', () => {
     if (sel.__syncCustomSelect) sel.__syncCustomSelect();
   });
   populateBulkClearList();
-  clearChoiceModal.style.display = 'none';
-  bulkClearQtyModal.style.display = 'block';
+  closeModal('clearChoiceModal');
+  openModal('bulkClearQtyModal');
 });
 
 bulkClearFilterSection.querySelectorAll('select').forEach(el => el.addEventListener('input', applyBulkClearFilters));
@@ -983,7 +966,7 @@ bulkDeselectAllButton.addEventListener('click', () => {
   bulkClearList.querySelectorAll('input[type="checkbox"]').forEach(cb => (cb.checked = false));
 });
 cancelBulkClear.addEventListener('click', () => {
-  bulkClearQtyModal.style.display = 'none';
+  closeModal('bulkClearQtyModal');
 });
 
 confirmBulkClearButton.addEventListener('click', async () => {
@@ -1016,7 +999,7 @@ confirmBulkClearButton.addEventListener('click', async () => {
         return;
       }
       showToast(`Successfully cleared quantities for ${codesToClear.length} item(s).`, 'success');
-      bulkClearQtyModal.style.display = 'none';
+      closeModal('bulkClearQtyModal');
     }
   } finally {
     setButtonLoading(confirmBulkClearButton, false);
@@ -1074,14 +1057,14 @@ confirmImportButton.addEventListener('click', async () => {
       return;
     }
     showToast(`Successfully imported ${importedCount} item(s).`, 'success');
-    importDataModal.style.display = 'none';
+    closeModal('importDataModal');
   } finally {
     setButtonLoading(confirmImportButton, false);
   }
 });
 
 cancelImportButton.addEventListener('click', () => {
-  importDataModal.style.display = 'none';
+  closeModal('importDataModal');
 });
 
 // ---------------------------------------------------------------------------
@@ -1186,7 +1169,7 @@ saveBreakdownButton.addEventListener('click', async () => {
       return;
     }
     showToast('Item updated.', 'success');
-    editBreakdownModal.style.display = 'none';
+    closeModal('editBreakdownModal');
   } finally {
     setButtonLoading(saveBreakdownButton, false);
   }
@@ -1200,7 +1183,7 @@ editBreakdownModal.addEventListener('keydown', function (event) {
 });
 
 cancelBreakdownButton.addEventListener('click', () => {
-  editBreakdownModal.style.display = 'none';
+  closeModal('editBreakdownModal');
 });
 
 // ---------------------------------------------------------------------------
@@ -1209,10 +1192,10 @@ cancelBreakdownButton.addEventListener('click', () => {
 viewDetailedReportButton.addEventListener('click', () => {
   if (!state.currentEditingRow) return;
   renderItemDetailedReport(state.currentEditingRow.dataset.code);
-  itemDetailedReportModal.style.display = 'block';
+  openModal('itemDetailedReportModal');
 });
 closeItemReportButton.addEventListener('click', () => {
-  itemDetailedReportModal.style.display = 'none';
+  closeModal('itemDetailedReportModal');
 });
 exportItemReportButton.addEventListener('click', async () => {
   await loadXLSX();
@@ -1275,7 +1258,7 @@ openBulkDeliveriesModalButton.addEventListener('click', () => {
     bulkDelSharedDate.value = `${year}-${month}-${day}`;
     renderBulkList();
 
-    bulkDeliveriesModal.style.display = 'block';
+    openModal('bulkDeliveriesModal');
     setTimeout(() => bulkDelSharedRemarks.focus(), 100);
   });
 });
@@ -1487,7 +1470,7 @@ confirmBulkDeliveryButton.addEventListener('click', async () => {
       return;
     }
     await applyFiltersAndSort();
-    bulkDeliveriesModal.style.display = 'none';
+    closeModal('bulkDeliveriesModal');
     showToast(`Successfully saved ${successCount} deliveries.`, 'success');
   } catch (err) {
     console.error('Bulk delivery save failed:', err);
@@ -1496,7 +1479,7 @@ confirmBulkDeliveryButton.addEventListener('click', async () => {
 });
 
 cancelBulkDelivery.addEventListener('click', () => {
-  bulkDeliveriesModal.style.display = 'none';
+  closeModal('bulkDeliveriesModal');
 });
 
 // ---------------------------------------------------------------------------
@@ -1523,7 +1506,7 @@ openBulkWithdrawModalButton.addEventListener('click', () => {
     bulkWithdrawQtyInput.value = '';
     bulkWithdrawErrorMessage.innerHTML = '';
     renderWithdrawList();
-    bulkWithdrawModal.style.display = 'block';
+    openModal('bulkWithdrawModal');
     setTimeout(() => bulkWithdrawItemSearch.focus(), 100);
   });
 });
@@ -1558,6 +1541,7 @@ bulkWithdrawItemSearch.addEventListener('keydown', e => {
     if (bulkWithdrawCombobox.selectHighlighted()) return;
     setTimeout(() => {
       if (document.activeElement === bulkWithdrawQtyInput) return;
+      bulkWithdrawQtyInput.focus();
     }, 150);
   }
 });
@@ -1624,7 +1608,7 @@ addToListWithdrawBtn.addEventListener('click', () => {
 });
 
 cancelBulkWithdraw.addEventListener('click', () => {
-  bulkWithdrawModal.style.display = 'none';
+  closeModal('bulkWithdrawModal');
 });
 
 confirmBulkWithdrawButton.addEventListener('click', async () => {
@@ -1664,7 +1648,7 @@ confirmBulkWithdrawButton.addEventListener('click', async () => {
         return;
       }
       showToast(`Successfully withdrew from ${successfulWithdrawals} item(s).`, 'success');
-      bulkWithdrawModal.style.display = 'none';
+      closeModal('bulkWithdrawModal');
     } else {
       showToast('No withdrawals could be processed. Stock may have changed.', 'error');
     }
@@ -1678,7 +1662,7 @@ confirmBulkWithdrawButton.addEventListener('click', async () => {
 // ---------------------------------------------------------------------------
 openVarianceModalButton.addEventListener('click', () => {
   checkAccess(() => {
-    varianceModal.style.display = 'block';
+    openModal('varianceModal');
     varianceFileInput.value = '';
     varianceTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">Upload a file to see results.</td></tr>';
     varianceErrorMessage.textContent = '';
@@ -1686,7 +1670,7 @@ openVarianceModalButton.addEventListener('click', () => {
 });
 
 closeVarianceModalButton.addEventListener('click', () => {
-  varianceModal.style.display = 'none';
+  closeModal('varianceModal');
 });
 
 compareVarianceButton.addEventListener('click', async () => {
@@ -1705,16 +1689,30 @@ compareVarianceButton.addEventListener('click', async () => {
       const invSheet = workbook.Sheets['Inventory_Backup'] || workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(invSheet);
 
-      if (!jsonData.length || !jsonData[0].hasOwnProperty('MATERIAL_CODE') || !jsonData[0].hasOwnProperty('STOCKING_QTY')) {
+      // Match column headers loosely (case/spacing/underscore/word-order
+      // insensitive) so backups exported with slightly different header
+      // formatting (e.g. "Material Code", "Qty Stocking") still work.
+      const normalizeKey = k => String(k).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const findKey = (row, ...targetVariants) => {
+        const normalizedTargets = targetVariants.map(normalizeKey);
+        return Object.keys(row).find(k => normalizedTargets.includes(normalizeKey(k)));
+      };
+
+      const materialCodeKey = jsonData.length ? findKey(jsonData[0], 'MATERIAL_CODE') : null;
+      const stockingQtyKey = jsonData.length
+        ? findKey(jsonData[0], 'STOCKING_QTY', 'QTY_STOCKING')
+        : null;
+
+      if (!jsonData.length || !materialCodeKey || !stockingQtyKey) {
         varianceErrorMessage.textContent = 'Invalid Backup file format. Ensure you are uploading a system backup.';
         return;
       }
 
       const excelInventory = {};
       jsonData.forEach(item => {
-        if (item.MATERIAL_CODE) {
-          const code = String(item.MATERIAL_CODE).trim();
-          const stockingQtyString = String(item.STOCKING_QTY || '');
+        if (item[materialCodeKey]) {
+          const code = String(item[materialCodeKey]).trim();
+          const stockingQtyString = String(item[stockingQtyKey] || '');
           const stockVal = calculateSingleStockingQtyTotal(formatStockingQty(stockingQtyString));
           if (!isNaN(stockVal)) {
             excelInventory[code] = stockVal;

@@ -3,6 +3,8 @@
 // Toasts, glass dialog, dark mode, button loading, date/time, file naming.
 // =============================================================================
 
+import { openModalStack } from './modal-stack.js';
+
 // --- Cached / View-Only Mode Indicators ---
 
 function formatSyncedTimestamp(isoString) {
@@ -64,9 +66,12 @@ function glassDialog(message, { showCancel, allowEnterConfirm = false } = {}) {
     msgEl.textContent = message;
     cancelBtn.style.display = showCancel ? '' : 'none';
     modal.style.display = 'block';
+    openModalStack.push('glassDialogModal');
 
     function cleanup(result) {
       modal.style.display = 'none';
+      const idx = openModalStack.lastIndexOf('glassDialogModal');
+      if (idx !== -1) openModalStack.splice(idx, 1);
       okBtn.onclick = null;
       cancelBtn.onclick = null;
       document.removeEventListener('keydown', onKeyDown);

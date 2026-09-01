@@ -96,22 +96,54 @@ function handleSessionExpired(reason) {
 }
 
 // Keeps the view-only fallback cache reasonably fresh after a confirmed
-// successful save — not just on full loads/unlocks — using the current
-// in-memory state (which already reflects the save that just succeeded).
-// Without this, an edit saved successfully to the database could still look
-// "missing" if the device is later locked/refreshed before its next full load.
-function refreshSnapshotCacheFromState() {
-  const inventoryData = state.originalRowsOrder.map(row => ({
-    code: row.dataset.code,
-    stockingQty: row.dataset.stockingQty,
-    remarks: row.dataset.remarks,
-    locations: row.dataset.locations,
-  }));
-  const syncedAt = writeSnapshotCache({
-    inventoryData,
-    transactionHistory: state.transactionHistory,
-    palletCapacities: state.palletCapacities,
-  });
+// successful save — not just on full loads/unlocks — so an edit saved
+// successfully to the database doesn't still look "missing" if the device
+// is later locked/refreshed before its next full load.
+//
+// Merges only the exact payload that was just confirmed sent, rather than
+// snapshotting the current live DOM state. The DOM can already reflect
+// newer edits that are still queued (not yet sent/confirmed) at the moment
+// an earlier entry succeeds — snapshotting the full live state at that
+// point would mark those not-yet-saved edits as "synced" in the offline
+// cache, which would be wrong if a later queued save then failed.
+function mergeConfirmedPayloadIntoCache(payload) {
+  const cached = readSnapshotCache();
+  const base = cached ? cached.data : { inventoryData: [], transactionHistory: [], palletCapacities: {} };
+  let inventoryData = Array.isArray(base.inventoryData) ? [...base.inventoryData] : [];
+  let transactionHistory = Array.isArray(base.transactionHistory) ? [...base.transactionHistory] : [];
+  let palletCapacities =
+    base.palletCapacities && typeof base.palletCapacities === 'object' ? { ...base.palletCapacities } : {};
+
+  if (payload.inventoryData) {
+    inventoryData = payload.inventoryData;
+  } else {
+    if (payload.changedItems && payload.changedItems.length) {
+      const byCode = new Map(inventoryData.map(item => [item.code, item]));
+      payload.changedItems.forEach(item => byCode.set(item.code, item));
+      inventoryData = Array.from(byCode.values());
+    }
+    if (payload.deletedCodes && payload.deletedCodes.length) {
+      const deletedSet = new Set(payload.deletedCodes);
+      inventoryData = inventoryData.filter(item => !deletedSet.has(item.code));
+    }
+  }
+
+  if (payload.transactionHistory) {
+    transactionHistory = payload.transactionHistory;
+  } else if (payload.newHistoryEntries && payload.newHistoryEntries.length) {
+    transactionHistory = [...payload.newHistoryEntries, ...transactionHistory];
+  }
+
+  if (payload.palletCapacities) {
+    palletCapacities = payload.palletCapacities;
+  } else if (payload.changedPalletCapacity) {
+    palletCapacities = {
+      ...palletCapacities,
+      [payload.changedPalletCapacity.code]: payload.changedPalletCapacity.capacity,
+    };
+  }
+
+  const syncedAt = writeSnapshotCache({ inventoryData, transactionHistory, palletCapacities });
   updateLastSyncedLabel(syncedAt);
 }
 
@@ -224,7 +256,7 @@ async function processSaveQueue() {
     saveQueue.shift();
     showSaveIndicator(false);
     document.getElementById('errorMessage').textContent = '';
-    refreshSnapshotCacheFromState();
+    mergeConfirmedPayloadIntoCache(entry.payload);
     entry.resolve({ success: true });
     queueProcessing = false;
     await processSaveQueue(); // continue with whatever's next

@@ -18,6 +18,7 @@ export function getHistoryRowBadgeClass(action) {
 }
 
 export function getActionBadgeClass(action) {
+  action = action || '';
   if (action.includes('DELIVERY')) return 'badge-delivery';
   if (action.includes('WITHDRAW')) return 'badge-withdraw';
   if (action === 'EDIT ITEM') return 'badge-edit';
@@ -125,9 +126,9 @@ export function renderHistoryLog(searchTerm = '') {
     if (dateTo && logDate > dateTo) return false;
     if (!searchTerm) return true;
     return (
-      log.code.toLowerCase().includes(searchTerm) ||
-      log.details.toLowerCase().includes(searchTerm) ||
-      log.action.toLowerCase().includes(searchTerm)
+      (log.code || '').toLowerCase().includes(searchTerm) ||
+      (log.details || '').toLowerCase().includes(searchTerm) ||
+      (log.action || '').toLowerCase().includes(searchTerm)
     );
   });
   state.historyRenderedCount = 0;
@@ -172,9 +173,9 @@ export function prependHistoryLog(log) {
   if ((dateFrom && logDate < dateFrom) || (dateTo && logDate > dateTo)) return;
   if (searchTerm) {
     const matches =
-      log.code.toLowerCase().includes(searchTerm) ||
-      log.details.toLowerCase().includes(searchTerm) ||
-      log.action.toLowerCase().includes(searchTerm);
+      (log.code || '').toLowerCase().includes(searchTerm) ||
+      (log.details || '').toLowerCase().includes(searchTerm) ||
+      (log.action || '').toLowerCase().includes(searchTerm);
     if (!matches) return;
   }
   const historyTableBody = document.getElementById('historyTableBody');
@@ -202,12 +203,13 @@ export function getItemLogsForCode(code) {
   const results = [];
   state.transactionHistory.forEach(log => {
     if (log.code === code) {
+      const details = log.details || '';
       let delta = null;
-      let deltaLabel = log.details;
-      const plusMatch = log.details.match(/\+([\d,]+(?:\.\d+)?)/);
-      const minusMatch = log.details.match(/-([\d,]+(?:\.\d+)?)/);
+      let deltaLabel = details;
+      const plusMatch = details.match(/\+([\d,]+(?:\.\d+)?)/);
+      const minusMatch = details.match(/-([\d,]+(?:\.\d+)?)/);
       if (log.action === 'EDIT ITEM') {
-        const m = log.details.match(/Qty: "(.*)" -> "(.*)"/);
+        const m = details.match(/Qty: "(.*)" -> "(.*)"/);
         if (m) {
           const oldTotal = calculateSingleStockingQtyTotal(formatStockingQty(m[1]));
           const newTotal = calculateSingleStockingQtyTotal(formatStockingQty(m[2]));
@@ -219,7 +221,7 @@ export function getItemLogsForCode(code) {
       } else if (minusMatch) {
         delta = -parseFloat(minusMatch[1].replace(/,/g, ''));
       }
-      results.push({ timestamp: log.timestamp, action: log.action, delta, deltaLabel, details: log.details, meta: log.meta || null });
+      results.push({ timestamp: log.timestamp, action: log.action, delta, deltaLabel, details, meta: log.meta || null });
     } else if (log.action === 'BULK WITHDRAW' && log.details) {
       const parts = log.details.split(', ');
       parts.forEach(p => {

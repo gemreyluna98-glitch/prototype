@@ -91,7 +91,7 @@ export function printInventory() {
   const includeBldgRackCheckbox = document.getElementById('includeBldgRackPrintCheckbox');
   const includeBldgRackInPrint = includeBldgRackCheckbox ? includeBldgRackCheckbox.checked : false;
   const enableMovementFilter = document.getElementById('enableMovementFilter');
-  const isMainMovementActive = enableMovementFilter.checked;
+  let isMainMovementActive = enableMovementFilter.checked;
   const moveDateFrom = document.getElementById('moveDateFrom');
   const moveTimeFrom = document.getElementById('moveTimeFrom');
   const moveDateTo = document.getElementById('moveDateTo');
@@ -112,26 +112,40 @@ export function printInventory() {
   }
 
   let movedItems = new Set();
+  let hasInvalidMovementRange = false;
   if (showMarking && (dateFrom || dateTo)) {
     let start = dateFrom ? new Date(`${dateFrom}T${timeFrom}`) : new Date(0);
     let end = dateTo ? new Date(`${dateTo}T${timeTo}`) : new Date();
     if (isNaN(start.getTime())) start = new Date(0);
     if (isNaN(end.getTime())) end = new Date();
-    state.transactionHistory.forEach(log => {
-      const logDate = new Date(log.timestamp);
-      if (logDate >= start && logDate <= end) {
-        if (log.action === 'BULK WITHDRAW') {
-          const parts = log.details.split(', ');
-          parts.forEach(p => {
-            const codeMatch = p.match(/^(.*?) \(/);
-            if (codeMatch) movedItems.add(codeMatch[1].trim());
-          });
-        } else if (log.code && log.code !== '-') {
-          movedItems.add(log.code.trim());
+    if (dateFrom && dateTo && start > end) {
+      hasInvalidMovementRange = true;
+      showToast(
+        isMainMovementActive
+          ? 'Movement filter: "From" date is after "To" date — printing all items instead.'
+          : 'Movement marking: "From" date is after "To" date — no items will be marked as moved.',
+        'error'
+      );
+    } else {
+      state.transactionHistory.forEach(log => {
+        const logDate = new Date(log.timestamp);
+        if (logDate >= start && logDate <= end) {
+          if (log.action === 'BULK WITHDRAW') {
+            const parts = (log.details || '').split(', ');
+            parts.forEach(p => {
+              const codeMatch = p.match(/^(.*?) \(/);
+              if (codeMatch) movedItems.add(codeMatch[1].trim());
+            });
+          } else if (log.code && log.code !== '-') {
+            movedItems.add(log.code.trim());
+          }
         }
-      }
-    });
+      });
+    }
   }
+  // If the range was invalid, don't let "only print moved items" silently
+  // filter out the entire report — fall back to printing everything.
+  if (hasInvalidMovementRange) isMainMovementActive = false;
 
   const inventoryTableBody = document.getElementById('inventoryTableBody');
   const rows = Array.from(inventoryTableBody.querySelectorAll('tr'));

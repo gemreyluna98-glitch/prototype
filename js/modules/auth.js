@@ -5,6 +5,7 @@
 import { state, clearStoredToken, getStoredToken } from './state.js';
 import { loadDataFromAPI } from './api.js';
 import { customConfirm, showToast, showCacheModeBanner } from './ui.js';
+import { openModal, closeModal, clearModalStack } from './modal-stack.js';
 
 const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 const SESSION_CHECK_INTERVAL_MS = 30 * 1000; // 30 seconds
@@ -21,6 +22,7 @@ export function lockSystem() {
   state.isLocked = true;
   updateLockUI();
   document.querySelectorAll('.modal').forEach(m => (m.style.display = 'none'));
+  clearModalStack();
   clearStoredToken();
   stopSessionCheck();
   showCacheModeBanner();
@@ -60,6 +62,7 @@ async function runSessionCheck() {
       state.isLocked = true;
       updateLockUI();
       document.querySelectorAll('.modal').forEach(m => (m.style.display = 'none'));
+      clearModalStack();
       showCacheModeBanner();
       showToast(
         replaced
@@ -78,8 +81,7 @@ async function runSessionCheck() {
 
 export function showPasswordModal(callback) {
   state.pendingAction = callback;
-  const modal = document.getElementById('passwordModal');
-  modal.style.display = 'block';
+  openModal('passwordModal');
   document.getElementById('systemPasswordInput').value = '';
   document.getElementById('passwordErrorMessage').textContent = '';
   document.getElementById('systemPasswordInput').focus();
@@ -132,7 +134,7 @@ export async function handleUnlock(force = false) {
       updateLockUI();
       resetInactivityTimer();
       startSessionCheck();
-      document.getElementById('passwordModal').style.display = 'none';
+      closeModal('passwordModal');
       await loadDataFromAPI();
       if (state.pendingAction) {
         const action = state.pendingAction;
@@ -196,7 +198,7 @@ export function initAuth() {
     if (e.key === 'Enter') handleUnlock();
   });
   cancelUnlockBtn.addEventListener('click', () => {
-    document.getElementById('passwordModal').style.display = 'none';
+    closeModal('passwordModal');
     state.pendingAction = null;
   });
 

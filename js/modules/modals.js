@@ -4,6 +4,7 @@
 // =============================================================================
 
 import { state } from './state.js';
+import { openModal } from './modal-stack.js';
 import {
   formatStockingQty,
   getBreakdownParts,
@@ -28,7 +29,7 @@ export function openEditBreakdownModal(row) {
   document.getElementById('editBreakdownModal').classList.remove('stocking-qty-floating');
   document.querySelectorAll('.field-flash-highlight').forEach(el => el.classList.remove('field-flash-highlight'));
   updateEditBreakdownPreview();
-  document.getElementById('editBreakdownModal').style.display = 'block';
+  openModal('editBreakdownModal');
 }
 
 const standardRemarksList = [

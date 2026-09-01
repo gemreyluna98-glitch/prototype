@@ -5,6 +5,7 @@
 
 import { state } from './state.js';
 import { saveInventoryData, saveDataToAPI } from './api.js';
+import { showToast } from './ui.js';
 
 // --- Format & Parse Helpers ---
 
@@ -429,10 +430,16 @@ export async function applyFiltersAndSort() {
   const movementMode = document.getElementById('movementMode');
 
   const isMovementActive = enableMovementFilter.checked;
-  const movedItemsSet = isMovementActive
-    ? getMovedItems(moveDateFrom.value, moveTimeFrom.value, moveDateTo.value, moveTimeTo.value)
-    : new Set();
-  const showOnlyMoved = isMovementActive && movementMode.value === 'FILTER_ONLY';
+  const hasInvalidMovementRange =
+    isMovementActive && moveDateFrom.value && moveDateTo.value && moveDateFrom.value > moveDateTo.value;
+  if (hasInvalidMovementRange) {
+    showToast('Movement filter: "From" date is after "To" date — showing all items instead.', 'error');
+  }
+  const movedItemsSet =
+    isMovementActive && !hasInvalidMovementRange
+      ? getMovedItems(moveDateFrom.value, moveTimeFrom.value, moveDateTo.value, moveTimeTo.value)
+      : new Set();
+  const showOnlyMoved = isMovementActive && !hasInvalidMovementRange && movementMode.value === 'FILTER_ONLY';
 
   let rowsToShow = [...state.originalRowsOrder];
   rowsToShow = rowsToShow.filter(row => {
@@ -554,13 +561,13 @@ export function getMovedItems(dateFrom, timeFrom, dateTo, timeTo) {
     const logDate = new Date(log.timestamp);
     if (logDate >= start && logDate <= end) {
       if (log.action === 'BULK WITHDRAW') {
-        const parts = log.details.split(', ');
+        const parts = (log.details || '').split(', ');
         parts.forEach(p => {
           const codeMatch = p.match(/^(.*?) \(/);
           if (codeMatch) movedItems.add(codeMatch[1].trim());
         });
       } else if (log.action === 'BULK CLEAR QTY') {
-        const codes = log.details.split(', ').map(c => c.replace(/\.\.\.$/, '').trim()).filter(Boolean);
+        const codes = (log.details || '').split(', ').map(c => c.replace(/\.\.\.$/, '').trim()).filter(Boolean);
         codes.forEach(code => movedItems.add(code));
       } else if (log.code && log.code !== '-') {
         movedItems.add(log.code.trim());
