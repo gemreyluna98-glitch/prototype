@@ -7,7 +7,7 @@
 // Module Imports
 // ---------------------------------------------------------------------------
 import { state } from './modules/state.js';
-import { saveDataToAPI, loadDataFromAPI, saveInventoryData, saveHistoryData } from './modules/api.js';
+import { saveDataToAPI, loadDataFromAPI, saveInventoryData, saveHistoryData, retrySaveQueue } from './modules/api.js';
 import { resetInactivityTimer, lockSystem, showPasswordModal, handleUnlock, updateLockUI, checkAccess, initAuth } from './modules/auth.js';
 import {
   formatStockingQty,
@@ -1002,10 +1002,14 @@ confirmBulkClearButton.addEventListener('click', async () => {
           targetRow.cells[3].textContent = '';
         }
       });
-      saveInventoryData(codesToClear);
+      const result = await saveInventoryData(codesToClear);
       logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : ''));
       await applyFiltersAndSort();
       applyBuildingRackVisibility();
+      if (!result.success) {
+        showToast(`Hindi na-save: ${result.error} I-retry sa itaas.`, 'error');
+        return;
+      }
       showToast(`Successfully cleared quantities for ${codesToClear.length} item(s).`, 'success');
       bulkClearQtyModal.style.display = 'none';
     }
@@ -1457,7 +1461,11 @@ confirmBulkDeliveryButton.addEventListener('click', async () => {
 
   try {
     renderHistoryLog(searchBar.value.toLowerCase());
-    await saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes }, newLogs);
+    const result = await saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes }, newLogs);
+    if (!result.success) {
+      showToast(`Hindi na-save: ${result.error} I-retry sa itaas.`, 'error');
+      return;
+    }
     await applyFiltersAndSort();
     bulkDeliveriesModal.style.display = 'none';
     showToast(`Successfully saved ${successCount} deliveries.`, 'success');
@@ -1630,7 +1638,11 @@ confirmBulkWithdrawButton.addEventListener('click', async () => {
       await applyFiltersAndSort();
       const newLog = logTransaction('BULK WITHDRAW', `${successfulWithdrawals} items`, transactionDetails.join(', '), null, true);
       prependHistoryLog(newLog);
-      saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes }, [newLog]);
+      const result = await saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes }, [newLog]);
+      if (!result.success) {
+        showToast(`Hindi na-save: ${result.error} I-retry sa itaas.`, 'error');
+        return;
+      }
       showToast(`Successfully withdrew from ${successfulWithdrawals} item(s).`, 'success');
       bulkWithdrawModal.style.display = 'none';
     } else {
@@ -1776,6 +1788,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initCustomSelects();
   updateDateTimeAndShift();
   loadDataFromAPI();
+
+  const saveQueueRetryButton = document.getElementById('saveQueueRetryButton');
+  if (saveQueueRetryButton) saveQueueRetryButton.addEventListener('click', () => retrySaveQueue());
 
   const savedUserName = localStorage.getItem('userName');
   if (savedUserName) userNameInput.value = savedUserName;

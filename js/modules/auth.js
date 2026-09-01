@@ -174,6 +174,10 @@ export function updateLockUI() {
 }
 
 export function checkAccess(callback) {
+  if (state.saveQueuePaused) {
+    showToast('May pending na hindi pa na-save. I-retry muna sa itaas bago mag-edit ulit.', 'error');
+    return;
+  }
   if (state.isLocked) {
     showPasswordModal(callback);
     return;

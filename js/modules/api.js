@@ -115,84 +115,174 @@ function refreshSnapshotCacheFromState() {
   updateLastSyncedLabel(syncedAt);
 }
 
-export async function saveDataToAPI(dataToSave, invOptions = {}, newHistoryEntries = null, palletCapOptions = {}) {
-  showSaveIndicator(true);
+// --- Save Queue ---
+// Saves are enqueued (payload built immediately, from current state) rather
+// than fired off directly, and processed one at a time so two rapid edits
+// can never arrive at the server out of order and let a stale write clobber
+// a newer one. On failure, the whole queue pauses (failed + any still-
+// waiting items are kept, not discarded) and the visible table is reverted
+// to the server's truth so the screen never implies a save succeeded when
+// it didn't; the user must click Retry, which replays the queue from where
+// it stopped using the same saved payloads — no need to redo the edit.
+const saveQueue = [];
+let queueProcessing = false;
+
+function buildSavePayload(dataToSave, invOptions, newHistoryEntries, palletCapOptions) {
+  const payload = {};
+
+  if (dataToSave.includes('inventoryData')) {
+    const { changedCodes, deletedCodes } = invOptions;
+    if (changedCodes || deletedCodes) {
+      if (changedCodes && changedCodes.length) {
+        payload.changedItems = changedCodes
+          .map(code => state.rowsByCode.get(code))
+          .filter(Boolean)
+          .map(row => ({
+            code: row.dataset.code,
+            stockingQty: row.dataset.stockingQty,
+            remarks: row.dataset.remarks,
+            locations: row.dataset.locations,
+          }));
+      }
+      if (deletedCodes && deletedCodes.length) {
+        payload.deletedCodes = deletedCodes;
+      }
+    } else {
+      payload.inventoryData = state.originalRowsOrder.map(row => ({
+        code: row.dataset.code,
+        stockingQty: row.dataset.stockingQty,
+        remarks: row.dataset.remarks,
+        locations: row.dataset.locations,
+      }));
+    }
+  }
+  if (dataToSave.includes('transactionHistory')) {
+    if (newHistoryEntries) {
+      payload.newHistoryEntries = newHistoryEntries;
+    } else {
+      payload.transactionHistory = state.transactionHistory;
+    }
+  }
+  if (dataToSave.includes('palletCapacities')) {
+    const { changedCode } = palletCapOptions;
+    if (changedCode !== undefined) {
+      payload.changedPalletCapacity = { code: changedCode, capacity: state.palletCapacities[changedCode] };
+    } else {
+      payload.palletCapacities = state.palletCapacities;
+    }
+  }
+  return payload;
+}
+
+function showSaveQueueError(message) {
+  const banner = document.getElementById('saveQueueErrorBanner');
+  const msgEl = document.getElementById('saveQueueErrorMessage');
+  if (msgEl) msgEl.textContent = message;
+  if (banner) banner.style.display = 'flex';
+}
+
+function hideSaveQueueError() {
+  const banner = document.getElementById('saveQueueErrorBanner');
+  if (banner) banner.style.display = 'none';
+}
+
+async function sendSavePayload(payload) {
+  const currentToken = getStoredToken();
+  if (!currentToken) {
+    const err = new Error('Unlock the system before saving.');
+    err.status = 401;
+    throw err;
+  }
+  const response = await fetch('/api/save-data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentToken}` },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const details = errorData.error || errorData.details || response.statusText;
+    const err = new Error(details);
+    err.status = response.status;
+    err.reason = errorData.reason;
+    throw err;
+  }
+}
+
+async function processSaveQueue() {
+  if (queueProcessing || state.saveQueuePaused) return;
+  if (saveQueue.length === 0) {
+    // Fully drained — refresh from the server so the display reflects the
+    // canonical saved state.
+    await loadDataFromAPI();
+    return;
+  }
+
+  queueProcessing = true;
+  const entry = saveQueue[0];
   try {
-    const payload = {};
-    const currentToken = getStoredToken();
-    if (!currentToken) {
-      document.getElementById('errorMessage').textContent = 'Save Error: Unlock the system before saving.';
-      return;
-    }
-
-    if (dataToSave.includes('inventoryData')) {
-      const { changedCodes, deletedCodes } = invOptions;
-      if (changedCodes || deletedCodes) {
-        if (changedCodes && changedCodes.length) {
-          payload.changedItems = changedCodes
-            .map(code => state.rowsByCode.get(code))
-            .filter(Boolean)
-            .map(row => ({
-              code: row.dataset.code,
-              stockingQty: row.dataset.stockingQty,
-              remarks: row.dataset.remarks,
-              locations: row.dataset.locations,
-            }));
-        }
-        if (deletedCodes && deletedCodes.length) {
-          payload.deletedCodes = deletedCodes;
-        }
-      } else {
-        payload.inventoryData = state.originalRowsOrder.map(row => ({
-          code: row.dataset.code,
-          stockingQty: row.dataset.stockingQty,
-          remarks: row.dataset.remarks,
-          locations: row.dataset.locations,
-        }));
-      }
-    }
-    if (dataToSave.includes('transactionHistory')) {
-      if (newHistoryEntries) {
-        payload.newHistoryEntries = newHistoryEntries;
-      } else {
-        payload.transactionHistory = state.transactionHistory;
-      }
-    }
-    if (dataToSave.includes('palletCapacities')) {
-      const { changedCode } = palletCapOptions;
-      if (changedCode !== undefined) {
-        payload.changedPalletCapacity = { code: changedCode, capacity: state.palletCapacities[changedCode] };
-      } else {
-        payload.palletCapacities = state.palletCapacities;
-      }
-    }
-
-    const response = await fetch('/api/save-data', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${currentToken}`,
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      if (response.status === 401) {
-        document.getElementById('errorMessage').textContent = `Save Error: ${handleSessionExpired(errorData.reason)}`;
-      } else {
-        const details = errorData.error || errorData.details || response.statusText;
-        throw new Error(`Failed to save to database. Details: ${details}`);
-      }
-      return;
-    }
+    await sendSavePayload(entry.payload);
+    saveQueue.shift();
+    showSaveIndicator(false);
     document.getElementById('errorMessage').textContent = '';
     refreshSnapshotCacheFromState();
+    entry.resolve({ success: true });
+    queueProcessing = false;
+    await processSaveQueue(); // continue with whatever's next
   } catch (error) {
-    console.error('Database save error:', error);
-    document.getElementById('errorMessage').textContent = `Save Error: ${error.message}`;
-  } finally {
-    showSaveIndicator(false);
+    queueProcessing = false;
+    console.error('Save queue paused — error saving:', error);
+    state.saveQueuePaused = true;
+
+    let message;
+    if (error.status === 401) {
+      message = handleSessionExpired(error.reason);
+    } else {
+      message = error.message || 'Failed to save.';
+    }
+    showSaveQueueError(`Save Error: ${message} — I-retry para ipagpatuloy ang ${saveQueue.length} pending na pagbabago.`);
+    document.getElementById('errorMessage').textContent = `Save Error: ${message}`;
+
+    // Let this entry's original caller know it did NOT actually save — it
+    // stays in the queue (not shifted off) so Retry can still resend it.
+    entry.resolve({ success: false, error: message });
+
+    // Revert the visible table to the server's truth — any still-queued
+    // (unsent) edits stay out of view until a successful retry, so the
+    // screen never shows a change as if it were saved when it wasn't.
+    await loadDataFromAPI();
   }
+}
+
+export async function retrySaveQueue() {
+  if (saveQueue.length === 0) {
+    state.saveQueuePaused = false;
+    hideSaveQueueError();
+    return;
+  }
+  if (state.isLocked) {
+    // The pause was (at least in part) due to a lost/expired session — ask
+    // for the password again before re-attempting, instead of immediately
+    // re-failing with the same missing-token error.
+    const { showPasswordModal } = await import('./auth.js');
+    showPasswordModal(async () => {
+      state.saveQueuePaused = false;
+      hideSaveQueueError();
+      await processSaveQueue();
+    });
+    return;
+  }
+  state.saveQueuePaused = false;
+  hideSaveQueueError();
+  await processSaveQueue();
+}
+
+export function saveDataToAPI(dataToSave, invOptions = {}, newHistoryEntries = null, palletCapOptions = {}) {
+  const payload = buildSavePayload(dataToSave, invOptions, newHistoryEntries, palletCapOptions);
+  showSaveIndicator(true);
+  return new Promise(resolve => {
+    saveQueue.push({ payload, resolve });
+    processSaveQueue();
+  });
 }
 
 // Viewing the inventory is public (no login required) — only editing is
@@ -236,9 +326,9 @@ export async function loadDataFromAPI() {
 }
 
 export function saveInventoryData(changedCodes = null, deletedCodes = null) {
-  saveDataToAPI(['inventoryData'], { changedCodes, deletedCodes });
+  return saveDataToAPI(['inventoryData'], { changedCodes, deletedCodes });
 }
 
 export function saveHistoryData(newEntries = null) {
-  saveDataToAPI(['transactionHistory'], {}, newEntries);
+  return saveDataToAPI(['transactionHistory'], {}, newEntries);
 }

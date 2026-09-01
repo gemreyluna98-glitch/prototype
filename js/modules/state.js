@@ -25,6 +25,7 @@ export const state = {
   historyCurrentSearchTerm: '',
 
   activeSaveCount: 0,
+  saveQueuePaused: false,
 };
 
 export function getStoredToken() {

@@ -134,6 +134,19 @@ h2 {
   padding: 8px 14px; border-radius: var(--radius-sm); margin-bottom: 12px;
 }
 body.dark-mode .cache-mode-banner { color: #fbbf24; background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.3); }
+.save-queue-error-banner {
+  display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+  background: rgba(220, 38, 38, 0.12); border: 1px solid rgba(220, 38, 38, 0.4);
+  color: #b91c1c; font-family: var(--font-mono); font-size: 0.85em; font-weight: 600;
+  padding: 10px 14px; border-radius: var(--radius-sm); margin-bottom: 12px;
+}
+body.dark-mode .save-queue-error-banner { color: #fca5a5; background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.35); }
+.save-queue-error-banner button {
+  background: #dc2626; color: #fff; border: none; border-radius: var(--radius-sm);
+  padding: 5px 14px; font-family: var(--font-mono); font-weight: 700; font-size: 0.95em;
+  cursor: pointer; transition: background 0.15s ease;
+}
+.save-queue-error-banner button:hover { background: #b91c1c; }
 .container > h1 {
   border-bottom: 1px solid var(--border-soft);
   padding-bottom: 16px;

@@ -89,6 +89,8 @@ Ang Cohin Inventory System ay gumagamit ng **Cloudflare D1** (SQLite-based datab
 
 ## Mga Importanteng Tandaan
 
+- **⚠️ Kailangang i-update ang schema kung existing na deployment ka:** Idinagdag ang bagong `active_session` table (para sa single-active-session enforcement — nililimitahan ang pag-edit sa isang device lang nang sabay-sabay). Kung may existing ka nang D1 database, kailangan mong i-run ulit ang `functions/d1/schema.sql` laban dito bago gumana ang feature na ito. Ligtas itong ulitin kahit may laman na ang tables mo (`CREATE TABLE IF NOT EXISTS`) — hindi nito hahawakan o babaguhin ang existing data mo, idadagdag lang ang bagong table. Via Cloudflare Dashboard → D1 → piliin ang database mo → **Console** tab → i-paste ang buong laman ng `functions/d1/schema.sql` → Execute. O via CLI: `wrangler d1 execute cohin-db --file=functions/d1/schema.sql --remote`
+
 - **Backup bago mag-migrate**: Bago gumawa ng malaking pagbabago sa database (bagong deployment, schema update), i-export muna gamit ang backup feature ng app (File Ops → Backup) bilang safety net.
 - **Free tier**: Ang Cloudflare D1 ay may libreng tier na sapat na para sa isang inventory system ng ganitong laki (hanggang ilang libong SKU).
 - **Schema reference**: Nasa `functions/d1/schema.sql` ang kasalukuyang buong schema — gamitin ito bilang reference kung kailangan mong gumawa ng bagong database instance (staging, backup, atbp.).
