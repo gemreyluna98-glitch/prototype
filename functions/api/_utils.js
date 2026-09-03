@@ -124,6 +124,44 @@ export function validateLogEntry(log) {
   return { valid: true };
 }
 
+// --- Timing-safe password comparison ---
+
+/**
+ * SHA-256 hash a string, returning the raw digest bytes.
+ */
+async function sha256Bytes(str) {
+  const data = new TextEncoder().encode(str);
+  const hashBuf = await crypto.subtle.digest('SHA-256', data);
+  return new Uint8Array(hashBuf);
+}
+
+/**
+ * Constant-time comparison of two equal-length byte arrays — always walks
+ * every byte (no early exit), so it doesn't leak how many leading
+ * characters matched via response timing.
+ */
+function timingSafeEqualBytes(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
+}
+
+/**
+ * Timing-safe equality check for the system password. Compares SHA-256
+ * digests (fixed 32-byte length either way) rather than the raw strings,
+ * so a plain `!==` can't short-circuit on the first mismatched character.
+ */
+export async function passwordsMatch(provided, expected) {
+  const [providedHash, expectedHash] = await Promise.all([
+    sha256Bytes(provided ?? ''),
+    sha256Bytes(expected ?? ''),
+  ]);
+  return timingSafeEqualBytes(providedHash, expectedHash);
+}
+
 // --- Session Token Helpers (HMAC-SHA256) ---
 
 const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours

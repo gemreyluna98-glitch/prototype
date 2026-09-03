@@ -80,8 +80,8 @@ function renderHistoryRowPair(log, searchTerm, insertAtTop) {
   });
   row.insertCell(0).textContent = formattedDate;
   row.insertCell(1).innerHTML = `<span class="history-badge ${getHistoryRowBadgeClass(log.action)}">${highlightMatch(log.action, searchTerm)}</span>`;
-  row.insertCell(2).innerHTML = highlightMatch(log.code, searchTerm);
-  row.insertCell(3).innerHTML = highlightMatch(log.details, searchTerm);
+  row.insertCell(2).innerHTML = highlightMatch(log.code || '', searchTerm);
+  row.insertCell(3).innerHTML = highlightMatch(log.details || '', searchTerm);
 
   const detailRow = insertAtTop ? historyTableBody.insertRow(1) : historyTableBody.insertRow();
   detailRow.classList.add('history-detail-row-wrap');

@@ -1,4 +1,4 @@
-import { corsHeaders, createSessionToken, parseDeviceLabel } from './_utils.js';
+import { corsHeaders, createSessionToken, parseDeviceLabel, passwordsMatch } from './_utils.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -13,7 +13,7 @@ export async function onRequestPost(context) {
       );
     }
 
-    if (password !== env.SYSTEM_PASSWORD) {
+    if (!(await passwordsMatch(password, env.SYSTEM_PASSWORD))) {
       return Response.json(
         { success: false, error: 'Incorrect password' },
         { status: 401, headers: corsHeaders }

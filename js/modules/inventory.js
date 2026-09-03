@@ -290,6 +290,20 @@ export function performWithdrawal(materialCode, withdrawAmount) {
   const oldLocations = JSON.parse(targetRow.dataset.locations || '[]');
   const oldParts = getBreakdownParts(formatStockingQty(targetRow.dataset.stockingQty));
 
+  // Parses a date like MM-DD-YYYY or MM/DD/YYYY out of a remark string.
+  // Returns a timestamp, or null if no date is found / it doesn't parse.
+  const parseRemarkDate = remark => {
+    const m = /(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/.exec(remark || '');
+    if (!m) return null;
+    let month = parseInt(m[1], 10);
+    let day = parseInt(m[2], 10);
+    let year = parseInt(m[3], 10);
+    if (year < 100) year += 2000;
+    const d = new Date(year, month - 1, day);
+    if (isNaN(d.getTime())) return null;
+    return d.getTime();
+  };
+
   const partsWithDetails = oldParts.map((part, index) => ({
     value: part,
     qty: calculateSingleStockingQtyTotal(part),
@@ -297,6 +311,7 @@ export function performWithdrawal(materialCode, withdrawAmount) {
     location: oldLocations[index] || '',
     lowerRemark: (oldRemarks[index] || '').toLowerCase(),
     originalIndex: index,
+    remarkDate: parseRemarkDate(oldRemarks[index] || ''),
   }));
 
   const getPriority = remark => {
@@ -306,10 +321,24 @@ export function performWithdrawal(materialCode, withdrawAmount) {
     return 3;
   };
 
+  // Remarks with no parseable date are treated as the NEWEST within their
+  // tier (i.e. deducted last), never the oldest.
+  const dateKey = p => (p.remarkDate === null ? Infinity : p.remarkDate);
+
   const withdrawableParts = partsWithDetails.filter(p => !p.lowerRemark.startsWith('hold'));
   const strictSort = (parts, amount) => {
-    const highestPrio = parts.length > 0 ? getPriority(parts[0].lowerRemark) : 3;
-    const firstBundle = parts.find(p => getPriority(p.lowerRemark) === highestPrio && /[*xX\u00d7]/.test(p.value));
+    // Determine the reference item (for bundle-size matching) from the
+    // priority+date order, not the raw unsorted array.
+    const priorityDateSorted = [...parts].sort((a, b) => {
+      const prioA = getPriority(a.lowerRemark),
+        prioB = getPriority(b.lowerRemark);
+      if (prioA !== prioB) return prioA - prioB;
+      return dateKey(a) - dateKey(b);
+    });
+    const highestPrio = priorityDateSorted.length > 0 ? getPriority(priorityDateSorted[0].lowerRemark) : 3;
+    const firstBundle = priorityDateSorted.find(
+      p => getPriority(p.lowerRemark) === highestPrio && /[*xX\u00d7]/.test(p.value)
+    );
     let bundleSize = 0;
     if (firstBundle) {
       const bParts = firstBundle.value.split(/[*xX\u00d7]/);
@@ -320,6 +349,9 @@ export function performWithdrawal(materialCode, withdrawAmount) {
       const prioA = getPriority(a.lowerRemark),
         prioB = getPriority(b.lowerRemark);
       if (prioA !== prioB) return prioA - prioB;
+      const dateA = dateKey(a),
+        dateB = dateKey(b);
+      if (dateA !== dateB) return dateA - dateB;
       const isMultA = /[*xX\u00d7]/.test(a.value),
         isMultB = /[*xX\u00d7]/.test(b.value);
       if (isMultA !== isMultB) {
@@ -368,7 +400,12 @@ export function performWithdrawal(materialCode, withdrawAmount) {
   if (!hasOldItems) {
     const approvedItems = remainingWithdrawable.filter(p => getPriority(p.lowerRemark) === 2);
     if (approvedItems.length > 0) {
-      approvedItems.sort((a, b) => a.originalIndex - b.originalIndex);
+      approvedItems.sort((a, b) => {
+        const dateA = dateKey(a),
+          dateB = dateKey(b);
+        if (dateA !== dateB) return dateA - dateB;
+        return a.originalIndex - b.originalIndex;
+      });
       const oldestApproved = approvedItems[0];
       oldestApproved.remark = oldestApproved.remark.replace(/approved/i, 'OLD').replace(/approve/i, 'OLD');
       if (!oldestApproved.remark.toUpperCase().includes('OLD')) {
