@@ -44,7 +44,11 @@ Ang Cohin Inventory System ay gumagamit ng **Cloudflare D1** (SQLite-based datab
    - **Value**: kahit anong mahabang random na text (hal. `openssl rand -hex 32` sa terminal, o kahit anong 32+ character na random string)
    - Ginagamit ito para pumirma sa mga session token pagkatapos mag-login. Kung hindi mo ito ise-set, gagamitin na lang ng system ang `SYSTEM_PASSWORD` bilang pansamantalang signing key — gumagana pa rin, pero mas mainam kung magkaiba ang dalawa.
 5. Piliing gawing **Encrypt/Secret** ang dalawang variable na ito kung available ang option — para hindi ito makita ng kahit sino sa dashboard mismo.
-6. Click **Save**.
+6. (Rekomendado bago mag-production) Magdagdag pa ng isa pang variable:
+   - **Variable name**: `ALLOWED_ORIGIN`
+   - **Value**: ang buong URL ng iyong Pages site (hal. `https://your-project.pages.dev`)
+   - Kung hindi mo ito ise-set, ang API ay tatanggap pa rin ng requests mula sa kahit anong website (`*`) — gumagana pa rin, pero mas ligtas kung i-restrict mo ito sa sarili mong domain lang.
+7. Click **Save**.
 
 ### Step 6 — Redeploy
 1. Pumunta sa **Deployments** tab.

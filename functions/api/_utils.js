@@ -3,17 +3,25 @@
 // =============================================================================
 
 // --- CORS Configuration ---
-// Replace ALLOWED_ORIGIN with your actual Cloudflare Pages domain after deployment.
-const ALLOWED_ORIGIN = '*'; // TODO: Set to 'https://your-project.pages.dev' before production
+// Reads the allowed origin from the ALLOWED_ORIGIN environment variable/secret
+// (Pages > Settings > Environment variables), e.g. "https://your-project.pages.dev".
+// Falls back to "*" only when that binding hasn't been set yet, so existing
+// deployments don't break — but you should set ALLOWED_ORIGIN before going to
+// production so only your own frontend can call these endpoints.
+export function getCorsHeaders(env) {
+  const origin = (env && env.ALLOWED_ORIGIN) || '*';
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
+    // Needed whenever Access-Control-Allow-Origin reflects a specific origin
+    // instead of "*", so caches/CDNs don't serve one origin's CORS headers to another.
+    Vary: 'Origin',
+  };
+}
 
-export const corsHeaders = {
-  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
-};
-
-export function corsResponse(status = 200, body = null) {
-  const init = { status, headers: corsHeaders };
+export function corsResponse(env, status = 200, body = null) {
+  const init = { status, headers: getCorsHeaders(env) };
   return body ? Response.json(body, init) : new Response(null, init);
 }
 
@@ -28,16 +36,16 @@ export function corsResponse(status = 200, body = null) {
  */
 export async function verifyAuth(request, env) {
   if (!env.SYSTEM_PASSWORD) {
-    return { ok: false, response: corsResponse(500, { error: 'Server misconfigured: SYSTEM_PASSWORD is not set.' }) };
+    return { ok: false, response: corsResponse(env, 500, { error: 'Server misconfigured: SYSTEM_PASSWORD is not set.' }) };
   }
   const authHeader = request.headers.get('Authorization');
   const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) {
-    return { ok: false, response: corsResponse(401, { error: 'Unauthorized. Please log in again.' }) };
+    return { ok: false, response: corsResponse(env, 401, { error: 'Unauthorized. Please log in again.' }) };
   }
   const result = await verifySessionToken(token, env);
   if (!result.valid) {
-    return { ok: false, response: corsResponse(401, { error: 'Session expired or invalid. Please log in again.' }) };
+    return { ok: false, response: corsResponse(env, 401, { error: 'Session expired or invalid. Please log in again.' }) };
   }
 
   // Single-active-session check: if someone has logged in since this token
@@ -48,7 +56,7 @@ export async function verifyAuth(request, env) {
       if (row && row.session_id && row.session_id !== result.sid) {
         return {
           ok: false,
-          response: corsResponse(401, {
+          response: corsResponse(env, 401, {
             error: 'You were logged out because someone logged in from another device.',
             reason: 'session_replaced',
           }),

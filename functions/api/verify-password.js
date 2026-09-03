@@ -1,7 +1,8 @@
-import { corsHeaders, createSessionToken, parseDeviceLabel, passwordsMatch } from './_utils.js';
+import { getCorsHeaders, createSessionToken, parseDeviceLabel, passwordsMatch } from './_utils.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
+  const corsHeaders = getCorsHeaders(env);
 
   try {
     const { password, force } = await request.json();

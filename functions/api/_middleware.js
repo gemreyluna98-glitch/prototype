@@ -3,7 +3,7 @@
 // Handles CORS preflight and rate limiting for sensitive endpoints.
 // =============================================================================
 
-import { corsHeaders } from './_utils.js';
+import { getCorsHeaders } from './_utils.js';
 
 const RATE_LIMIT_MAX = 30;          // max requests per window for general POST endpoints
 const AUTH_RATE_LIMIT_MAX = 10;     // max password-endpoint requests per window — a single login with an
@@ -45,7 +45,8 @@ function isRateLimited(key, max) {
 }
 
 export async function onRequest(context) {
-  const { request } = context;
+  const { request, env } = context;
+  const corsHeaders = getCorsHeaders(env);
   const path = new URL(request.url).pathname;
 
   // CORS preflight — short-circuit

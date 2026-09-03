@@ -330,9 +330,15 @@ export async function loadDataFromAPI() {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const contentType = response.headers.get('content-type') || '';
+      const errorData = contentType.includes('application/json') ? await response.json().catch(() => ({})) : {};
       const details = errorData.error || errorData.details || response.statusText;
       throw new Error(`Failed to fetch from database. Details: ${details}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error('Endpoint returned HTML instead of JSON (offline or local dev server)');
     }
 
     const dbData = await response.json();

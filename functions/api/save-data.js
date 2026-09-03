@@ -1,7 +1,8 @@
-import { corsHeaders, verifyAuth, validateBulkItems, validateItem, validateLogEntry } from './_utils.js';
+import { getCorsHeaders, verifyAuth, validateBulkItems, validateItem, validateLogEntry } from './_utils.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
+  const corsHeaders = getCorsHeaders(env);
 
   if (!env.DB) {
     return Response.json(

@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 import { state } from './modules/state.js';
 import { openModal, closeModal } from './modules/modal-stack.js';
-import { saveDataToAPI, loadDataFromAPI, saveInventoryData, saveHistoryData, retrySaveQueue } from './modules/api.js';
+import { saveDataToAPI, loadDataFromAPI, retrySaveQueue } from './modules/api.js';
 import { resetInactivityTimer, lockSystem, showPasswordModal, handleUnlock, updateLockUI, checkAccess, initAuth } from './modules/auth.js';
 import {
   formatStockingQty,
@@ -885,8 +885,20 @@ clearHistoryButton.addEventListener('click', () => {
         state.historyFilteredCache = [];
         state.historyRenderedCount = 0;
         historyTableBody.innerHTML = '';
-        saveHistoryData();
-        logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.');
+        // skipSync=true — logTransaction unshifts the new log onto
+        // state.transactionHistory (already emptied above), leaving it as
+        // just [newLog]. Passing no newHistoryEntries means buildSavePayload
+        // takes the full-replace path and sends that array as-is — so the
+        // clear and the log land in ONE request (transaction_history is
+        // wiped and re-seeded with just this entry), instead of a separate
+        // saveHistoryData() call for the clear followed by another for the
+        // log (two full-table reloads for one click).
+        const newLog = logTransaction('CLEAR HISTORY', '-', 'Transaction history cleared.', null, true);
+        prependHistoryLog(newLog);
+        const result = await saveDataToAPI(['transactionHistory']);
+        if (!result.success) {
+          showToast(`Hindi na-save: ${result.error} I-retry sa itaas.`, 'error');
+        }
       }
     } finally {
       setButtonLoading(clearHistoryButton, false);
@@ -933,8 +945,13 @@ triggerClearAllButton.addEventListener('click', async () => {
       state.originalRowsOrder = [];
       state.rowsByCode = new Map();
       await applyFiltersAndSort();
-      const result = await saveInventoryData();
-      logTransaction('CLEAR ALL', '-', 'All inventory data cleared.');
+      // skipSync=true: fold the log into the same save request as the
+      // inventory clear below, instead of firing it as its own separate
+      // save (which would drain the queue twice and reload/rebuild the
+      // whole table twice for one user action).
+      const newLog = logTransaction('CLEAR ALL', '-', 'All inventory data cleared.', null, true);
+      prependHistoryLog(newLog);
+      const result = await saveDataToAPI(['inventoryData', 'transactionHistory'], {}, [newLog]);
       if (!result.success) {
         showToast(`Hindi na-save: ${result.error} I-retry sa itaas.`, 'error');
         return;
@@ -990,8 +1007,19 @@ confirmBulkClearButton.addEventListener('click', async () => {
           targetRow.cells[3].textContent = '';
         }
       });
-      const result = await saveInventoryData(codesToClear);
-      logTransaction('BULK CLEAR QTY', `${codesToClear.length} items`, codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : ''));
+      // skipSync=true here too, same reasoning as Clear All above — one
+      // combined save instead of an inventory save followed by a separate
+      // history save (each of which would otherwise trigger its own full
+      // table reload).
+      const newLog = logTransaction(
+        'BULK CLEAR QTY',
+        `${codesToClear.length} items`,
+        codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : ''),
+        null,
+        true
+      );
+      prependHistoryLog(newLog);
+      const result = await saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes: codesToClear }, [newLog]);
       await applyFiltersAndSort();
       applyBuildingRackVisibility();
       if (!result.success) {
@@ -1155,15 +1183,21 @@ saveBreakdownButton.addEventListener('click', async () => {
     state.currentEditingRow.cells[1].innerHTML = renderBreakdownCellHtml(newStockingQty, newRemarks, newLocations);
     state.currentEditingRow.cells[2].textContent = total.toLocaleString();
     state.currentEditingRow.cells[3].textContent = newRemarks.filter(r => r).join(' | ');
-    const result = await saveInventoryData([code]);
-    logTransaction('EDIT ITEM', code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, {
+    const result_meta = {
       oldQty: oldStockingQty,
       oldRemarks,
       oldLocations,
       newQty: newStockingQty,
       newRemarks,
       newLocations,
-    });
+    };
+    // skipSync=true — fold the EDIT ITEM log into the same save request as
+    // the inventory change above (like bulk delivery/withdraw already do),
+    // instead of firing two separate saves that would each drain the queue
+    // and trigger their own full-table reload for a single row edit.
+    const newLog = logTransaction('EDIT ITEM', code, `Qty: "${oldStockingQty}" -> "${newStockingQty}"`, result_meta, true);
+    prependHistoryLog(newLog);
+    const result = await saveDataToAPI(['inventoryData', 'transactionHistory'], { changedCodes: [code] }, [newLog]);
     if (!result.success) {
       showToast(`Hindi na-save: ${result.error} I-retry sa itaas.`, 'error');
       return;
@@ -1652,6 +1686,9 @@ confirmBulkWithdrawButton.addEventListener('click', async () => {
     } else {
       showToast('No withdrawals could be processed. Stock may have changed.', 'error');
     }
+  } catch (err) {
+    console.error('Bulk withdraw save failed:', err);
+    showToast('Failed to save withdrawal data. Please try again.', 'error');
   } finally {
     setButtonLoading(confirmBulkWithdrawButton, false);
   }

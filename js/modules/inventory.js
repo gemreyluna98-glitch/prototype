@@ -377,6 +377,7 @@ export function performWithdrawal(materialCode, withdrawAmount) {
     } else {
       const toDeduct = remaining;
       remaining = 0;
+      part.partiallyConsumed = true; // flag: this part was partially used
       if (/[*xX\u00d7]/.test(part.value)) {
         const subParts = part.value.split(/[*xX\u00d7]/);
         const multiplicand = parseFloat(subParts[subParts.length - 1].trim());
@@ -394,6 +395,21 @@ export function performWithdrawal(materialCode, withdrawAmount) {
       }
     }
   }
+
+  // Any part that was partially consumed should become "first out" so it is
+  // deducted first on the next withdrawal, before untouched approved stock —
+  // even if an untouched batch happens to share the same (or an earlier)
+  // remark date. Without this, a same-date tie among untouched "approved"
+  // batches can promote the wrong (untouched) one to "OLD" below, instead of
+  // the batch that was actually just dipped into.
+  partsWithDetails.forEach(p => {
+    if (p.partiallyConsumed && p.value !== '') {
+      if (!/first\s*out|old/i.test(p.remark)) {
+        p.remark = p.remark ? `first out ${p.remark}` : 'first out';
+        p.lowerRemark = p.remark.toLowerCase();
+      }
+    }
+  });
 
   const remainingWithdrawable = partsWithDetails.filter(p => p.value !== '' && !p.lowerRemark.startsWith('hold'));
   const hasOldItems = remainingWithdrawable.some(p => getPriority(p.lowerRemark) === 1);

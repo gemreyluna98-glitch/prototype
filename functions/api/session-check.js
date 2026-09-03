@@ -5,7 +5,7 @@
 // another device has taken over the single active session.
 // =============================================================================
 
-import { corsHeaders, verifyAuth } from './_utils.js';
+import { getCorsHeaders, verifyAuth } from './_utils.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -17,5 +17,5 @@ export async function onRequestGet(context) {
     return auth.response;
   }
 
-  return Response.json({ ok: true }, { headers: corsHeaders });
+  return Response.json({ ok: true }, { headers: getCorsHeaders(env) });
 }

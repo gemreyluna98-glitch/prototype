@@ -1,9 +1,10 @@
-import { corsHeaders } from './_utils.js';
+import { getCorsHeaders } from './_utils.js';
 
 // Intentionally public/unauthenticated — viewing the inventory no longer
 // requires a login (only editing does, via save-data.js + verifyAuth).
 export async function onRequestGet(context) {
   const { request, env } = context;
+  const corsHeaders = getCorsHeaders(env);
 
   if (!env.DB) {
     return Response.json(
