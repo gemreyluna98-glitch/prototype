@@ -8,6 +8,13 @@ import { showSaveIndicator, updateLastSyncedLabel, showCacheModeBanner, hideCach
 
 const SNAPSHOT_CACHE_KEY = 'cachedInventorySnapshot';
 const SNAPSHOT_TIME_KEY = 'cachedInventorySnapshotTime';
+// Bug 10 fix: the cache is only an offline/view-only fallback (see
+// renderCachedSnapshot below) — it doesn't need the full history window
+// (which can be up to 5000 rows from get-data.js), just enough for someone
+// to see recent activity while offline. Capping this keeps localStorage
+// well under its quota as transaction_history keeps growing, instead of
+// writing the entire thing on every load/save.
+const CACHED_HISTORY_LIMIT = 300;
 
 function readSnapshotCache() {
   try {
@@ -21,9 +28,13 @@ function readSnapshotCache() {
 
 function writeSnapshotCache(dbData) {
   try {
+    const fullHistory = dbData.transactionHistory || [];
     const snapshot = {
       inventoryData: dbData.inventoryData || [],
-      transactionHistory: dbData.transactionHistory || [],
+      // Already newest-first (get-data.js orders by id DESC; prependHistoryLog
+      // /unshift keeps client-side updates newest-first too), so the first N
+      // entries are the most recent N.
+      transactionHistory: fullHistory.slice(0, CACHED_HISTORY_LIMIT),
       palletCapacities: dbData.palletCapacities || {},
     };
     const timestamp = new Date().toISOString();
@@ -243,9 +254,21 @@ async function sendSavePayload(payload) {
 async function processSaveQueue() {
   if (queueProcessing || state.saveQueuePaused) return;
   if (saveQueue.length === 0) {
-    // Fully drained — refresh from the server so the display reflects the
-    // canonical saved state.
-    await loadDataFromAPI();
+    // Bug 2 fix: this used to unconditionally call loadDataFromAPI() here —
+    // a full GET of every item + up to 5000 history rows, plus a full DOM
+    // rebuild — after every single successful save, not just bulk ones.
+    // It's redundant: whichever handler queued this save already applied
+    // the change to the DOM optimistically before calling saveDataToAPI(),
+    // and mergeConfirmedPayloadIntoCache() (below, per successful entry)
+    // already keeps the offline snapshot cache and "last synced" label
+    // current. There's nothing here a reload would tell us that we don't
+    // already know — this app has no multi-device concurrent editing
+    // (single active session is enforced) and no "Add New Item" flow whose
+    // server-assigned position we'd need to learn (changedItems only ever
+    // touches codes that already have a row — see buildSavePayload — so
+    // its sort_order is always preserved-on-update, never appended; the
+    // full-replace path used by Restore/Import/Clear All sends its own
+    // array order as the sort_order, so that's already known too).
     return;
   }
 

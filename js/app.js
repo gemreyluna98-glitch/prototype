@@ -32,6 +32,7 @@ import {
   getMovedItems,
   convertToExcelFormula,
   applyBuildingRackVisibility,
+  diffBreakdownPartsWithFallback,
 } from './modules/inventory.js';
 import {
   renderHistoryLog,
@@ -622,50 +623,6 @@ function buildClickablePreviewParts(rawValue, remarks, locations) {
   });
 }
 
-// --- LCS-based Breakdown Alignment ---
-function diffBreakdownParts(oldParts, newParts) {
-  const n = oldParts.length,
-    m = newParts.length;
-  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
-  for (let i = 1; i <= n; i++) {
-    for (let j = 1; j <= m; j++) {
-      dp[i][j] = oldParts[i - 1] === newParts[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
-    }
-  }
-  const mapping = new Array(m).fill(-1);
-  let i = n,
-    j = m;
-  while (i > 0 && j > 0) {
-    if (oldParts[i - 1] === newParts[j - 1]) {
-      mapping[j - 1] = i - 1;
-      i--;
-      j--;
-    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-      i--;
-    } else {
-      j--;
-    }
-  }
-  return mapping;
-}
-
-function diffBreakdownPartsWithFallback(oldParts, newParts, excludedIndices) {
-  const mapping = diffBreakdownParts(oldParts, newParts);
-  const usedOld = new Set(mapping.filter(x => x !== -1));
-  const leftoverOldIdx = [];
-  for (let i = 0; i < oldParts.length; i++) {
-    if (!usedOld.has(i) && !excludedIndices.has(i)) leftoverOldIdx.push(i);
-  }
-  let li = 0;
-  for (let j = 0; j < mapping.length; j++) {
-    if (mapping[j] === -1 && li < leftoverOldIdx.length) {
-      mapping[j] = leftoverOldIdx[li];
-      li++;
-    }
-  }
-  return mapping;
-}
-
 // --- Bulk Delivery Helpers ---
 function autofillBulkDeliveryCapacity(code) {
   if (!code) return;
@@ -1011,11 +968,15 @@ confirmBulkClearButton.addEventListener('click', async () => {
       // combined save instead of an inventory save followed by a separate
       // history save (each of which would otherwise trigger its own full
       // table reload).
+      // Bug 7 fix: `details` stays truncated to 5 codes for a readable
+      // history-table cell, but the FULL list goes in meta.itemCodes so
+      // getMovedItems()/getItemLogsForCode() can find the 6th+ item too
+      // instead of only ever seeing the truncated text.
       const newLog = logTransaction(
         'BULK CLEAR QTY',
         `${codesToClear.length} items`,
         codesToClear.slice(0, 5).join(', ') + (codesToClear.length > 5 ? '...' : ''),
-        null,
+        { itemCodes: codesToClear },
         true
       );
       prependHistoryLog(newLog);
@@ -1122,12 +1083,65 @@ editBreakdownInput.addEventListener('input', function () {
     const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
     const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
     const mapping = diffBreakdownPartsWithFallback(state.lastEditBreakdownParts, newParts, state.markedForDeletionIndices);
+
+    // Bug 4 fix, part 1: an "identity" mapping means the part count and
+    // order haven't actually changed (e.g. the user just edited a digit
+    // inside an existing part, like "10×50" -> "10×60") — there's nothing
+    // for the remarks/location inputs to reflect, so skip touching the
+    // container at all. This covers the large majority of edits and means
+    // a Remarks/Location field the user is actively typing in never loses
+    // focus or cursor position for them.
+    const oldPartsCount = state.lastEditBreakdownParts.length;
+    const isIdentityMapping = mapping.length === oldPartsCount && mapping.every((oldIdx, i) => oldIdx === i);
+    state.lastEditBreakdownParts = newParts;
+    if (isIdentityMapping) {
+      updateEditBreakdownPreview();
+      return;
+    }
+
+    // Bug 4 fix, part 2: the structure genuinely changed (a part was added,
+    // removed, or reordered), so a rebuild is unavoidable here — but first
+    // note which input (if any) currently has focus, and remap it plus any
+    // marked-for-deletion indices through the same `mapping` used for
+    // remarks/locations, so both survive the rebuild instead of silently
+    // resetting.
+    const active = document.activeElement;
+    let restoreInfo = null;
+    if (active && dynamicRemarksContainer.contains(active) &&
+      (active.classList.contains('remark-part-input') || active.classList.contains('location-part-input'))) {
+      const isRemark = active.classList.contains('remark-part-input');
+      const inputsOfType = Array.from(dynamicRemarksContainer.querySelectorAll(isRemark ? '.remark-part-input' : '.location-part-input'));
+      const oldIndex = inputsOfType.indexOf(active);
+      const newIndex = mapping.indexOf(oldIndex);
+      if (newIndex !== -1) {
+        restoreInfo = { isRemark, newIndex, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd };
+      }
+    }
+
     const alignedRemarks = mapping.map(oldIdx => (oldIdx === -1 ? '' : currentRemarks[oldIdx] || ''));
     const alignedLocations = mapping.map(oldIdx => (oldIdx === -1 ? '' : currentLocations[oldIdx] || ''));
-    state.lastEditBreakdownParts = newParts;
-    state.markedForDeletionIndices = new Set();
+    const remappedDeletionIndices = new Set();
+    state.markedForDeletionIndices.forEach(oldIdx => {
+      const newIdx = mapping.indexOf(oldIdx);
+      if (newIdx !== -1) remappedDeletionIndices.add(newIdx);
+    });
+    state.markedForDeletionIndices = remappedDeletionIndices;
     generateRemarksInputs(newParts.length, alignedRemarks, alignedLocations);
     updateEditBreakdownPreview();
+
+    if (restoreInfo) {
+      const newInputs = dynamicRemarksContainer.querySelectorAll(restoreInfo.isRemark ? '.remark-part-input' : '.location-part-input');
+      const target = newInputs[restoreInfo.newIndex];
+      if (target) {
+        target.focus();
+        try {
+          target.setSelectionRange(restoreInfo.selectionStart, restoreInfo.selectionEnd);
+        } catch {
+          // setSelectionRange can throw on some input types — focus alone
+          // (already done above) is still a meaningful improvement.
+        }
+      }
+    }
   }, 200);
 });
 

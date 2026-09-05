@@ -21,13 +21,16 @@ import { logTransaction, renderHistoryLog, prependHistoryLog } from './history.j
 import { showToast, customConfirm, generateBackupFilename, generateReportFilename } from './ui.js';
 
 // --- Lazy XLSX Loader ---
+// Bundled locally at js/vendor/xlsx.full.min.js (SheetJS, official build from
+// npm) instead of pulled from unpkg.com at runtime — Export/Backup/Restore/
+// Variance no longer depend on an external CDN being reachable.
 let xlsxLoadPromise = null;
 export function loadXLSX() {
   if (typeof XLSX !== 'undefined') return Promise.resolve();
   if (xlsxLoadPromise) return xlsxLoadPromise;
   xlsxLoadPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'https://unpkg.com/xlsx/dist/xlsx.full.min.js';
+    script.src = 'js/vendor/xlsx.full.min.js';
     script.onload = () => resolve();
     script.onerror = () => {
       xlsxLoadPromise = null;

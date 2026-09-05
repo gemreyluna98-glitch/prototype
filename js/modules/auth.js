@@ -19,6 +19,9 @@ export function resetInactivityTimer() {
 }
 
 export function lockSystem() {
+  // Capture the token before clearing it locally — /api/logout needs it to
+  // identify (and verify ownership of) the active_session row to clear.
+  const token = getStoredToken();
   state.isLocked = true;
   updateLockUI();
   document.querySelectorAll('.modal').forEach(m => (m.style.display = 'none'));
@@ -26,6 +29,20 @@ export function lockSystem() {
   clearStoredToken();
   stopSessionCheck();
   showCacheModeBanner();
+
+  // Bug 1 fix: tell the server this session is done so the D1 active_session
+  // row is cleared, instead of only clearing the token locally — otherwise
+  // this same device gets a false "someone else is logged in" conflict the
+  // next time it unlocks with the correct password (the stale row lingered
+  // for up to 24h). Fire-and-forget: the UI has already locked above
+  // regardless of whether this network call succeeds, and if it's offline
+  // the row will simply expire naturally after 24h.
+  if (token) {
+    fetch('/api/logout', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  }
 }
 
 // --- Session Check Polling ---
@@ -210,8 +227,25 @@ export function initAuth() {
     }
   });
 
-  ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(name => {
+  // Bug 9 fix: mousemove and scroll fire far more often than mousedown/
+  // keypress/touchstart (dozens of times per second while moving the mouse),
+  // so calling resetInactivityTimer() — a clearTimeout+setTimeout pair — on
+  // every single one is wasteful. Throttle just those two to at most once
+  // per second; that's still far more resolution than needed for a timeout
+  // measured in minutes, and `passive: true` avoids them blocking scrolling.
+  const ACTIVITY_THROTTLE_MS = 1000;
+  let lastActivityReset = 0;
+  function throttledResetInactivityTimer() {
+    const now = Date.now();
+    if (now - lastActivityReset < ACTIVITY_THROTTLE_MS) return;
+    lastActivityReset = now;
+    resetInactivityTimer();
+  }
+  ['mousedown', 'keypress', 'touchstart'].forEach(name => {
     document.addEventListener(name, resetInactivityTimer);
+  });
+  ['mousemove', 'scroll'].forEach(name => {
+    document.addEventListener(name, throttledResetInactivityTimer, { passive: true });
   });
 
   document.addEventListener('visibilitychange', () => {

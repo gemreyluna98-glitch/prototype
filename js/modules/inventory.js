@@ -620,8 +620,15 @@ export function getMovedItems(dateFrom, timeFrom, dateTo, timeTo) {
           if (codeMatch) movedItems.add(codeMatch[1].trim());
         });
       } else if (log.action === 'BULK CLEAR QTY') {
-        const codes = (log.details || '').split(', ').map(c => c.replace(/\.\.\.$/, '').trim()).filter(Boolean);
-        codes.forEach(code => movedItems.add(code));
+        // Prefer the full list in meta (added so this isn't limited to the
+        // truncated "first 5 + ..." display string) — fall back to parsing
+        // `details` for older log entries saved before this existed.
+        if (log.meta && Array.isArray(log.meta.itemCodes)) {
+          log.meta.itemCodes.forEach(code => movedItems.add(code));
+        } else {
+          const codes = (log.details || '').split(', ').map(c => c.replace(/\.\.\.$/, '').trim()).filter(Boolean);
+          codes.forEach(code => movedItems.add(code));
+        }
       } else if (log.code && log.code !== '-') {
         movedItems.add(log.code.trim());
       }
@@ -642,6 +649,55 @@ export function convertToExcelFormula(stockingQty) {
   formula = formula.replace(/\s+/g, ' ');
   if (!formula) return 0;
   return `=${formula}`;
+}
+
+// --- LCS-based Breakdown Alignment ---
+// Used by the Edit Breakdown modal's identity-mapping check (app.js) to
+// figure out which new breakdown part each old part's remarks/location
+// correspond to, after the person edits the Stocking Qty text. Moved here
+// (was previously local to app.js) so it's a pure, DOM-free function that
+// can be unit tested directly — see tests/inventory.test.js.
+export function diffBreakdownParts(oldParts, newParts) {
+  const n = oldParts.length,
+    m = newParts.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      dp[i][j] = oldParts[i - 1] === newParts[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  const mapping = new Array(m).fill(-1);
+  let i = n,
+    j = m;
+  while (i > 0 && j > 0) {
+    if (oldParts[i - 1] === newParts[j - 1]) {
+      mapping[j - 1] = i - 1;
+      i--;
+      j--;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+  return mapping;
+}
+
+export function diffBreakdownPartsWithFallback(oldParts, newParts, excludedIndices) {
+  const mapping = diffBreakdownParts(oldParts, newParts);
+  const usedOld = new Set(mapping.filter(x => x !== -1));
+  const leftoverOldIdx = [];
+  for (let i = 0; i < oldParts.length; i++) {
+    if (!usedOld.has(i) && !excludedIndices.has(i)) leftoverOldIdx.push(i);
+  }
+  let li = 0;
+  for (let j = 0; j < mapping.length; j++) {
+    if (mapping[j] === -1 && li < leftoverOldIdx.length) {
+      mapping[j] = leftoverOldIdx[li];
+      li++;
+    }
+  }
+  return mapping;
 }
 
 // --- Building/Rack Visibility ---

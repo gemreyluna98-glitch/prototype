@@ -238,8 +238,15 @@ export function getItemLogsForCode(code) {
           });
         }
       });
-    } else if (log.action === 'BULK CLEAR QTY' && log.details && log.details.split(', ').map(s => s.trim()).includes(code)) {
-      results.push({ timestamp: log.timestamp, action: 'BULK CLEAR QTY', delta: null, deltaLabel: 'Cleared', details: 'Quantity cleared as part of a bulk clear action.', meta: null });
+    } else if (log.action === 'BULK CLEAR QTY') {
+      // Same meta.itemCodes preference as getMovedItems() above, with the
+      // same fallback for logs saved before this fix existed.
+      const codes = log.meta && Array.isArray(log.meta.itemCodes)
+        ? log.meta.itemCodes
+        : (log.details || '').split(', ').map(s => s.trim());
+      if (codes.includes(code)) {
+        results.push({ timestamp: log.timestamp, action: 'BULK CLEAR QTY', delta: null, deltaLabel: 'Cleared', details: 'Quantity cleared as part of a bulk clear action.', meta: null });
+      }
     }
   });
   return results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
