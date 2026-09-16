@@ -95,6 +95,15 @@ Ang Cohin Inventory System ay gumagamit ng **Cloudflare D1** (SQLite-based datab
 
 - **⚠️ Kailangang i-update ang schema kung existing na deployment ka:** Idinagdag ang bagong `active_session` table (para sa single-active-session enforcement — nililimitahan ang pag-edit sa isang device lang nang sabay-sabay). Kung may existing ka nang D1 database, kailangan mong i-run ulit ang `functions/d1/schema.sql` laban dito bago gumana ang feature na ito. Ligtas itong ulitin kahit may laman na ang tables mo (`CREATE TABLE IF NOT EXISTS`) — hindi nito hahawakan o babaguhin ang existing data mo, idadagdag lang ang bagong table. Via Cloudflare Dashboard → D1 → piliin ang database mo → **Console** tab → i-paste ang buong laman ng `functions/d1/schema.sql` → Execute. O via CLI: `wrangler d1 execute cohin-db --file=functions/d1/schema.sql --remote`
 
+- **⚠️ Idinagdag din ang `client_id` column sa `transaction_history`** (para maiwasan ang duplicate na history entries kapag na-retry ang isang save na nabigo). Dahil existing na table ito, hindi ito idadagdag ng plain re-run ng `schema.sql` (`CREATE TABLE IF NOT EXISTS` ay hindi nagbabago ng structure ng existing table) — kailangan ng hiwalay na `ALTER TABLE` bago ang `schema.sql`:
+  ```
+  wrangler d1 execute cohin-db --remote --command "ALTER TABLE transaction_history ADD COLUMN client_id TEXT"
+  wrangler d1 execute cohin-db --remote --command "CREATE UNIQUE INDEX IF NOT EXISTS idx_history_client_id ON transaction_history(client_id)"
+  ```
+
+- **⚠️ Idinagdag din ang `save_operations` table** (idempotency marker para sa full-replace saves — Restore/Import/Clear History/Clear All — kapag na-retry ito, hindi na dobolado ang history). Bagong table lang ito (hindi nagbabago ng existing table), kaya sapat na ang plain re-run ng `functions/d1/schema.sql` (Step 1 sa itaas) para idagdag ito.
+  Ligtas itong i-run kahit may laman na ang table (nagdadagdag lang ng bagong column, walang effect sa existing rows/data).
+
 - **Backup bago mag-migrate**: Bago gumawa ng malaking pagbabago sa database (bagong deployment, schema update), i-export muna gamit ang backup feature ng app (File Ops → Backup) bilang safety net.
 - **Free tier**: Ang Cloudflare D1 ay may libreng tier na sapat na para sa isang inventory system ng ganitong laki (hanggang ilang libong SKU).
 - **Schema reference**: Nasa `functions/d1/schema.sql` ang kasalukuyang buong schema — gamitin ito bilang reference kung kailangan mong gumawa ng bagong database instance (staging, backup, atbp.).

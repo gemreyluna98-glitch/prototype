@@ -1,38 +1,52 @@
--- Cohin Inventory System — D1 schema
--- Run this once via: wrangler d1 execute cohin-db --file=functions/d1/schema.sql --remote
--- (or paste into the D1 "Console" tab in the Cloudflare dashboard)
 
 CREATE TABLE IF NOT EXISTS items (
   code TEXT PRIMARY KEY,
   stocking_qty TEXT,
-  remarks TEXT,      -- JSON-encoded array, same format the app already uses
-  locations TEXT,     -- JSON-encoded array, same format the app already uses
-  sort_order INTEGER DEFAULT 0  -- display/export order; preserved on update, appended for new items
+  remarks TEXT,      
+  locations TEXT,     
+  sort_order INTEGER DEFAULT 0
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_items_sort_order ON items(sort_order);
 
 CREATE TABLE IF NOT EXISTS transaction_history (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,  -- source of truth for ordering (timestamps can tie during bulk actions)
-  timestamp TEXT NOT NULL,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT,
   action TEXT NOT NULL,
   code TEXT,
   details TEXT,
-  meta TEXT           -- JSON-encoded object, NULL when the log has no meta
+  meta TEXT,
+  client_id TEXT
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_history_code ON transaction_history(code);
+-- Lets a retried save (after a partial failure, e.g. a network blip right
+-- after the write committed but before the client saw the response) safely
+-- resend the same log entry without duplicating it — see save-data.js's
+-- `INSERT ... ON CONFLICT(client_id) DO NOTHING`. NULL client_id (older
+-- clients, or rows saved before this column existed) is never treated as a
+-- duplicate of another NULL by SQLite's UNIQUE, so this is fully backward
+-- compatible.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_history_client_id ON transaction_history(client_id);
 
 CREATE TABLE IF NOT EXISTS pallet_capacities (
   code TEXT PRIMARY KEY,
   capacity TEXT
 ) STRICT;
 
--- Single-active-session enforcement: one row (id=1) tracking whoever most
--- recently completed a login. Every request's token is checked against
--- session_id here; a mismatch means someone else logged in since, so the
--- older device gets logged out on its next action.
+
 CREATE TABLE IF NOT EXISTS active_session (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   session_id TEXT NOT NULL,
-  issued_at TEXT NOT NULL,     -- ISO timestamp of login
-  device_label TEXT            -- e.g. "Chrome on Windows"
+  issued_at TEXT NOT NULL,
+  device_label TEXT
+) STRICT;
+
+-- Marks a full-replace save (Restore/Import/Clear History/Clear All) as
+-- fully completed, so a retry of the same request (e.g. after a network
+-- blip right after the write committed but before the client saw the
+-- response) can be recognized as already-done and short-circuited to a
+-- plain success instead of redoing the whole insert-then-cleanup swap —
+-- see save-data.js.
+CREATE TABLE IF NOT EXISTS save_operations (
+  operation_id TEXT PRIMARY KEY,
+  completed_at TEXT NOT NULL
 ) STRICT;

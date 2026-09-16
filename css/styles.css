@@ -478,6 +478,21 @@ body.dark-mode .save-queue-error-banner { color: #fca5a5; background: rgba(248, 
   text-shadow: 0 0 10px rgba(241, 196, 15, 0.8);
 }
 
+/* Per-row clickable ★ shown on every item while Mark Movement is active —
+   lets a specific item be checked off (or un-checked) by hand, regardless
+   of what the date-range auto-detection says. */
+.movement-star-toggle {
+  display: inline-block;
+  cursor: pointer;
+  color: var(--border);
+  font-weight: bold;
+  margin-right: 2px;
+  transition: color 0.15s, transform 0.1s;
+}
+.movement-star-toggle:hover { color: var(--amber); transform: scale(1.15); }
+.movement-star-toggle.is-marked { color: var(--red); }
+.movement-star-toggle.is-marked:hover { color: var(--red-dark, var(--red)); }
+
 @keyframes pulse-gold {
   0% { transform: scale(1); filter: drop-shadow(0 0 2px rgba(241, 196, 15, 0.5)); }
   100% { transform: scale(1.1); filter: drop-shadow(0 0 8px rgba(241, 196, 15, 0.9)); }
@@ -778,7 +793,8 @@ body.dark-mode .color-orange { color: #E8C547; } /* HOLD — brighter for dark b
 .filter-section select:focus, .filter-section input[type="text"]:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px var(--amber-glow); }
 hr { border: 0; height: 1px; background: var(--border); margin: 15px 0; }
 #historyTable th:nth-child(1), #historyTable td:nth-child(1) { white-space: nowrap; width: 160px; }
-#historyTable td:nth-child(4) { white-space: normal; font-family: var(--font-body); }
+#historyTable td:nth-child(4) { white-space: nowrap; text-align: center; }
+#historyTable td:nth-child(5) { white-space: normal; font-family: var(--font-body); }
 
 #clearHistoryButton { background-color: var(--grey-mid); float: right; margin-top: 10px; padding: 8px 16px; border-radius: var(--radius-sm); font-size: 0.85em; color: #fff; border: none; cursor: pointer; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
 #clearHistoryButton:hover { background-color: #545b64; transform: translateY(-1px); }
@@ -1088,6 +1104,8 @@ body.dark-mode .custom-select-panel { background-color: #10131a; }
   font-size: 1em;
   line-height: 1.5;
   margin: 6px 0 24px;
+  white-space: pre-line;
+  text-align: left;
 }
 .glass-dialog-actions { justify-content: center; gap: 12px; }
 .glass-dialog-cancel {
@@ -1169,7 +1187,33 @@ body.dark-mode .history-detail-row-wrap td { background: rgba(255, 255, 255, 0.0
   border-radius: var(--radius);
   margin-bottom: 10px;
 }
+.withdraw-breakdown-preview {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--paper);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  line-height: 1.6;
+  word-break: break-word;
+}
 .bulk-pending-card-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.bulk-pending-card-title-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hold-usage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72em;
+  font-weight: 700;
+  color: #fff;
+  background: var(--amber);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 .bulk-pending-card-header input {
   font-weight: bold;
   border: none;

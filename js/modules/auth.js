@@ -96,6 +96,43 @@ async function runSessionCheck() {
   }
 }
 
+// Runs once on page load: if a session token survived from before this
+// load (e.g. a refresh, not an explicit Lock), silently confirm with the
+// server it's still the active session and unlock without re-prompting for
+// the password. Without this, every refresh forced a fresh login — and
+// since the pre-refresh session was never explicitly ended, that fresh
+// login would immediately collide with itself as a false "someone else is
+// logged in" conflict.
+export async function restoreSessionIfValid() {
+  const token = getStoredToken();
+  if (!token) return;
+  try {
+    const response = await fetch('/api/session-check', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (response.ok) {
+      state.isLocked = false;
+      updateLockUI();
+      resetInactivityTimer();
+      startSessionCheck();
+    } else {
+      // Match runSessionCheck's messaging: a session that was replaced by
+      // another device while this tab was closed/asleep should be just as
+      // clearly explained as one caught while the tab stayed open — not
+      // silently dropped back to a bare lock screen.
+      const data = await response.json().catch(() => ({}));
+      clearStoredToken();
+      state.isLocked = true;
+      updateLockUI();
+      if (data.reason === 'session_replaced') {
+        showToast('You were logged out because someone logged in from another device.', 'error');
+      }
+    }
+  } catch {
+    // Offline/network error on load — stay locked; this is best-effort.
+  }
+}
+
 export function showPasswordModal(callback) {
   state.pendingAction = callback;
   openModal('passwordModal');

@@ -9,16 +9,16 @@
 import { state } from './modules/state.js';
 import { openModal, closeModal } from './modules/modal-stack.js';
 import { saveDataToAPI, loadDataFromAPI, retrySaveQueue } from './modules/api.js';
-import { resetInactivityTimer, lockSystem, showPasswordModal, handleUnlock, updateLockUI, checkAccess, initAuth } from './modules/auth.js';
+import { resetInactivityTimer, lockSystem, showPasswordModal, handleUnlock, updateLockUI, checkAccess, initAuth, restoreSessionIfValid } from './modules/auth.js';
 import {
   formatStockingQty,
   getBreakdownParts,
   calculateSingleStockingQtyTotal,
-  getColorClassForRemark,
+  classifyRemark,
+  getRowRemarks,
+  getRowLocations,
+  matchesInventoryFilters,
   escapeHtml,
-  isShortenBreakdownOn,
-  isSimplifyBreakdownOn,
-  simplifyBreakdownForDisplay,
   formatStockingQtyAndRemarksForDisplay,
   renderBreakdownCellHtml,
   refreshAllBreakdownDisplays,
@@ -27,6 +27,8 @@ import {
   generateBreakdownWithCapacity,
   mergeDeliveriesBreakdown,
   getWithdrawableStock,
+  getHoldStock,
+  getHoldBreakdown,
   performWithdrawal,
   applyFiltersAndSort,
   getMovedItems,
@@ -130,6 +132,7 @@ const cancelBulkClear = $('cancelBulkClear');
 const dataPresenceFilter_bulk = $('dataPresenceFilter_bulk');
 const openBulkWithdrawModalButton = $('openBulkWithdrawModalButton');
 const bulkWithdrawModal = $('bulkWithdrawModal');
+const bulkWithdrawItemBreakdown = $('bulkWithdrawItemBreakdown');
 const bulkWithdrawItemSearch = $('bulkWithdrawItemSearch');
 const bulkWithdrawQtyInput = $('bulkWithdrawQtyInput');
 const addToListWithdrawBtn = $('addToListWithdrawBtn');
@@ -427,11 +430,17 @@ function renderWithdrawList() {
   }
   pendingWithdrawalListContainer.innerHTML = state.pendingBulkWithdrawals
     .map((item, idx) => {
-      const totalWithdrawQty = calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
+      const totalWithdrawQty = item.totalQty ?? calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
+      const holdBadge = item.usesHold
+        ? '<span class="hold-usage-badge" title="This withdrawal dips into HOLD stock"><i class="fas fa-lock"></i> Uses HOLD</span>'
+        : '';
       return `
     <div class="bulk-pending-card">
         <div class="bulk-pending-card-header">
-            <span class="bulk-pending-card-code">${escapeHtml(item.code)}</span>
+            <span class="bulk-pending-card-title-group">
+                <span class="bulk-pending-card-code">${escapeHtml(item.code)}</span>
+                ${holdBadge}
+            </span>
             <button class="bulk-pending-card-remove" onclick="removeWithdrawalItem(${idx})"><i class="fas fa-times"></i></button>
         </div>
         <div class="bulk-pending-card-row">
@@ -484,45 +493,9 @@ function applyBulkClearFilters() {
   const itemType = document.getElementById('itemTypeFilter_bulk').value;
   const remarkType = document.getElementById('remarksFilter_bulk').value;
   const dataType = dataPresenceFilter_bulk.value;
-  const filteredRows = state.originalRowsOrder.filter(row => {
-    const code = row.dataset.code.toUpperCase();
-    const remarks = JSON.parse(row.dataset.remarks || '[]').map(r => r.toLowerCase().trim());
-    const qtyText = row.cells[1].textContent.trim();
-    const passesItem =
-      itemType === 'ALL' ||
-      (itemType === 'LBL' && code.startsWith('LBL')) ||
-      (itemType === 'CTN' && code.startsWith('CTN')) ||
-      (itemType === 'PLASTIC' && (code.startsWith('BAG') || code.includes('BUNDLE'))) ||
-      (itemType === 'OTHERS' && !/^(LBL|CTN|BAG)|BUNDLE/.test(code));
-    const passesData =
-      dataType === 'ALL' || (dataType === 'WITH_DATA' && qtyText) || (dataType === 'WITHOUT_DATA' && !qtyText);
-    let passesRemark = false;
-    const hasHold = remarks.some(r => r.startsWith('hold'));
-    const hasApproved = remarks.some(r => r.startsWith('approve') || r.startsWith('approved'));
-    const hasOld = remarks.some(r => r.startsWith('first out') || r.startsWith('old'));
-    const hasAnyRemark = remarks.some(r => r !== '');
-    switch (remarkType) {
-      case 'ALL':
-        passesRemark = true;
-        break;
-      case 'HOLD':
-        passesRemark = hasHold;
-        break;
-      case 'APPROVED':
-        passesRemark = hasApproved;
-        break;
-      case 'FIRSTOUT_OLD':
-        passesRemark = hasOld;
-        break;
-      case 'NO_REMARK':
-        passesRemark = !hasAnyRemark;
-        break;
-      case 'OTHER_REMARKS':
-        passesRemark = hasAnyRemark && !hasHold && !hasApproved && !hasOld;
-        break;
-    }
-    return passesItem && passesRemark && passesData;
-  });
+  const filteredRows = state.originalRowsOrder.filter(row =>
+    matchesInventoryFilters(row, { itemType, remarkType, dataType })
+  );
   populateBulkClearList(filteredRows);
 }
 
@@ -567,62 +540,6 @@ function handleSheetChange() {
   }
 }
 
-// --- Clickable Preview Parts (for edit breakdown modal) ---
-function buildClickablePreviewParts(rawValue, remarks, locations) {
-  const formattedBreakdown = formatStockingQty(rawValue);
-  const parts = getBreakdownParts(formattedBreakdown);
-  if (!parts.length || (parts.length === 1 && !parts[0])) return [];
-  remarks = remarks || [];
-  locations = locations || [];
-
-  let groups;
-  if (isSimplifyBreakdownOn()) {
-    groups = [];
-    const keyIndexMap = new Map();
-    parts.forEach((part, idx) => {
-      const trimmed = part.trim();
-      const m = trimmed.match(/^([\d.,]+)\s*×\s*([\d.,]+)$/);
-      if (m) {
-        const multiplier = m[1],
-          multiplicand = m[2];
-        if (keyIndexMap.has(multiplicand)) {
-          const g = groups[keyIndexMap.get(multiplicand)];
-          g.multipliers.push(multiplier);
-          g.indices.push(idx);
-        } else {
-          keyIndexMap.set(multiplicand, groups.length);
-          groups.push({ type: 'mult', multiplicand, multipliers: [multiplier], indices: [idx] });
-        }
-      } else {
-        groups.push({ type: 'plain', raw: trimmed, indices: [idx] });
-      }
-    });
-  } else {
-    groups = parts.map((part, idx) => ({ type: 'plain', raw: part.trim(), indices: [idx] }));
-  }
-
-  const shorten = isShortenBreakdownOn();
-  return groups.map(g => {
-    let displayText;
-    if (g.type === 'plain') {
-      displayText = g.raw;
-      if (shorten) {
-        const multMatch = displayText.match(/^([\d.,]+)\s*×/);
-        if (multMatch) displayText = `(${multMatch[1]})`;
-      }
-    } else if (g.multipliers.length > 1) {
-      displayText = shorten ? `(${g.multipliers.join('+')})` : `(${g.multipliers.join(' + ')}) × ${g.multiplicand}`;
-    } else {
-      displayText = shorten ? `(${g.multipliers[0]})` : `${g.multipliers[0]}×${g.multiplicand}`;
-    }
-    const firstIdx = g.indices[0];
-    const remark = remarks[firstIdx] || '';
-    const colorClass = getColorClassForRemark(remark);
-    const loc = (locations[firstIdx] || '').trim();
-    return { text: displayText, colorClass, loc, indices: g.indices };
-  });
-}
-
 // --- Bulk Delivery Helpers ---
 function autofillBulkDeliveryCapacity(code) {
   if (!code) return;
@@ -637,7 +554,7 @@ function autofillBulkDeliveryCapacity(code) {
     } else if (row && row.dataset.remarks) {
       bulkDelPalletCapacity.value = '';
       try {
-        const remarksArr = JSON.parse(row.dataset.remarks);
+        const remarksArr = getRowRemarks(row);
         if (remarksArr.length > 0) {
           const firstRemark = remarksArr[0];
           const match = firstRemark.match(/(\d+)\s*PCS\/PLT/i);
@@ -684,21 +601,14 @@ window.removeWithdrawalItem = function (idx) {
   renderWithdrawList();
 };
 
-window.updateWithdrawalItemQty = function (idx, newQtyStr) {
+window.updateWithdrawalItemQty = async function (idx, newQtyStr) {
   const item = state.pendingBulkWithdrawals[idx];
   if (!item) return;
   const code = item.code;
   const row = state.rowsByCode.get(code);
   if (!row) return;
 
-  const maxWithdrawable = getWithdrawableStock(row);
   const newTotal = calculateSingleStockingQtyTotal(formatStockingQty(newQtyStr));
-
-  if (newTotal > maxWithdrawable) {
-    showToast(`Cannot withdraw ${newTotal.toLocaleString()}. Only ${maxWithdrawable.toLocaleString()} is available for ${code}.`, 'error');
-    renderWithdrawList();
-    return;
-  }
 
   if (newTotal <= 0) {
     showToast('Please enter a valid quantity greater than 0.', 'error');
@@ -706,7 +616,15 @@ window.updateWithdrawalItemQty = function (idx, newQtyStr) {
     return;
   }
 
+  const availability = await resolveWithdrawAvailability(row, code, newTotal);
+  if (!availability.ok) {
+    renderWithdrawList();
+    return;
+  }
+
   state.pendingBulkWithdrawals[idx].qty = newQtyStr;
+  state.pendingBulkWithdrawals[idx].usesHold = availability.usesHold;
+  state.pendingBulkWithdrawals[idx].totalQty = newTotal;
   renderWithdrawList();
 };
 
@@ -1060,6 +978,16 @@ cancelImportButton.addEventListener('click', () => {
 // Event Listeners — Inventory Table Click (Editable Breakdown)
 // ---------------------------------------------------------------------------
 inventoryTableBody.addEventListener('click', event => {
+  const starToggle = event.target.closest('.movement-star-toggle');
+  if (starToggle) {
+    // Purely a view-side helper (nothing saved/persisted), so it works
+    // regardless of lock state, same as viewing the inventory itself.
+    const code = starToggle.dataset.code;
+    const currentlyMoved = starToggle.classList.contains('is-marked');
+    state.movementOverrides.set(code, !currentlyMoved);
+    applyFiltersAndSort();
+    return;
+  }
   const targetCell = event.target.closest('.editable-breakdown');
   if (targetCell) {
     const code = targetCell.closest('tr')?.dataset.code;
@@ -1075,74 +1003,83 @@ inventoryTableBody.addEventListener('click', event => {
 // Event Listeners — Edit Breakdown Modal
 // ---------------------------------------------------------------------------
 let editBreakdownDebounceTimer = null;
+// Rebuilds the remark/location inputs to match editBreakdownInput's current
+// text. Normally called debounced (200ms after typing stops) so a fast
+// typist doesn't get the input list rebuilt out from under them on every
+// keystroke — but it's also called synchronously (with the timer cleared
+// first) right before Save reads the remark/location inputs, so Save can
+// never race the debounce and read inputs still reflecting a stale part
+// count.
+function syncEditBreakdownInputsToText() {
+  const val = editBreakdownInput.value;
+  const newParts = getBreakdownParts(formatStockingQty(val));
+  const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
+  const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
+  const mapping = diffBreakdownPartsWithFallback(state.lastEditBreakdownParts, newParts, state.markedForDeletionIndices);
+
+  // Bug 4 fix, part 1: an "identity" mapping means the part count and
+  // order haven't actually changed (e.g. the user just edited a digit
+  // inside an existing part, like "10×50" -> "10×60") — there's nothing
+  // for the remarks/location inputs to reflect, so skip touching the
+  // container at all. This covers the large majority of edits and means
+  // a Remarks/Location field the user is actively typing in never loses
+  // focus or cursor position for them.
+  const oldPartsCount = state.lastEditBreakdownParts.length;
+  const isIdentityMapping = mapping.length === oldPartsCount && mapping.every((oldIdx, i) => oldIdx === i);
+  state.lastEditBreakdownParts = newParts;
+  if (isIdentityMapping) {
+    updateEditBreakdownPreview();
+    return;
+  }
+
+  // Bug 4 fix, part 2: the structure genuinely changed (a part was added,
+  // removed, or reordered), so a rebuild is unavoidable here — but first
+  // note which input (if any) currently has focus, and remap it plus any
+  // marked-for-deletion indices through the same `mapping` used for
+  // remarks/locations, so both survive the rebuild instead of silently
+  // resetting.
+  const active = document.activeElement;
+  let restoreInfo = null;
+  if (active && dynamicRemarksContainer.contains(active) &&
+    (active.classList.contains('remark-part-input') || active.classList.contains('location-part-input'))) {
+    const isRemark = active.classList.contains('remark-part-input');
+    const inputsOfType = Array.from(dynamicRemarksContainer.querySelectorAll(isRemark ? '.remark-part-input' : '.location-part-input'));
+    const oldIndex = inputsOfType.indexOf(active);
+    const newIndex = mapping.indexOf(oldIndex);
+    if (newIndex !== -1) {
+      restoreInfo = { isRemark, newIndex, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd };
+    }
+  }
+
+  const alignedRemarks = mapping.map(oldIdx => (oldIdx === -1 ? '' : currentRemarks[oldIdx] || ''));
+  const alignedLocations = mapping.map(oldIdx => (oldIdx === -1 ? '' : currentLocations[oldIdx] || ''));
+  const remappedDeletionIndices = new Set();
+  state.markedForDeletionIndices.forEach(oldIdx => {
+    const newIdx = mapping.indexOf(oldIdx);
+    if (newIdx !== -1) remappedDeletionIndices.add(newIdx);
+  });
+  state.markedForDeletionIndices = remappedDeletionIndices;
+  generateRemarksInputs(newParts.length, alignedRemarks, alignedLocations);
+  updateEditBreakdownPreview();
+
+  if (restoreInfo) {
+    const newInputs = dynamicRemarksContainer.querySelectorAll(restoreInfo.isRemark ? '.remark-part-input' : '.location-part-input');
+    const target = newInputs[restoreInfo.newIndex];
+    if (target) {
+      target.focus();
+      try {
+        target.setSelectionRange(restoreInfo.selectionStart, restoreInfo.selectionEnd);
+      } catch {
+        // setSelectionRange can throw on some input types — focus alone
+        // (already done above) is still a meaningful improvement.
+      }
+    }
+  }
+}
+
 editBreakdownInput.addEventListener('input', function () {
   clearTimeout(editBreakdownDebounceTimer);
-  const val = this.value;
-  editBreakdownDebounceTimer = setTimeout(() => {
-    const newParts = getBreakdownParts(formatStockingQty(val));
-    const currentRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value);
-    const currentLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value);
-    const mapping = diffBreakdownPartsWithFallback(state.lastEditBreakdownParts, newParts, state.markedForDeletionIndices);
-
-    // Bug 4 fix, part 1: an "identity" mapping means the part count and
-    // order haven't actually changed (e.g. the user just edited a digit
-    // inside an existing part, like "10×50" -> "10×60") — there's nothing
-    // for the remarks/location inputs to reflect, so skip touching the
-    // container at all. This covers the large majority of edits and means
-    // a Remarks/Location field the user is actively typing in never loses
-    // focus or cursor position for them.
-    const oldPartsCount = state.lastEditBreakdownParts.length;
-    const isIdentityMapping = mapping.length === oldPartsCount && mapping.every((oldIdx, i) => oldIdx === i);
-    state.lastEditBreakdownParts = newParts;
-    if (isIdentityMapping) {
-      updateEditBreakdownPreview();
-      return;
-    }
-
-    // Bug 4 fix, part 2: the structure genuinely changed (a part was added,
-    // removed, or reordered), so a rebuild is unavoidable here — but first
-    // note which input (if any) currently has focus, and remap it plus any
-    // marked-for-deletion indices through the same `mapping` used for
-    // remarks/locations, so both survive the rebuild instead of silently
-    // resetting.
-    const active = document.activeElement;
-    let restoreInfo = null;
-    if (active && dynamicRemarksContainer.contains(active) &&
-      (active.classList.contains('remark-part-input') || active.classList.contains('location-part-input'))) {
-      const isRemark = active.classList.contains('remark-part-input');
-      const inputsOfType = Array.from(dynamicRemarksContainer.querySelectorAll(isRemark ? '.remark-part-input' : '.location-part-input'));
-      const oldIndex = inputsOfType.indexOf(active);
-      const newIndex = mapping.indexOf(oldIndex);
-      if (newIndex !== -1) {
-        restoreInfo = { isRemark, newIndex, selectionStart: active.selectionStart, selectionEnd: active.selectionEnd };
-      }
-    }
-
-    const alignedRemarks = mapping.map(oldIdx => (oldIdx === -1 ? '' : currentRemarks[oldIdx] || ''));
-    const alignedLocations = mapping.map(oldIdx => (oldIdx === -1 ? '' : currentLocations[oldIdx] || ''));
-    const remappedDeletionIndices = new Set();
-    state.markedForDeletionIndices.forEach(oldIdx => {
-      const newIdx = mapping.indexOf(oldIdx);
-      if (newIdx !== -1) remappedDeletionIndices.add(newIdx);
-    });
-    state.markedForDeletionIndices = remappedDeletionIndices;
-    generateRemarksInputs(newParts.length, alignedRemarks, alignedLocations);
-    updateEditBreakdownPreview();
-
-    if (restoreInfo) {
-      const newInputs = dynamicRemarksContainer.querySelectorAll(restoreInfo.isRemark ? '.remark-part-input' : '.location-part-input');
-      const target = newInputs[restoreInfo.newIndex];
-      if (target) {
-        target.focus();
-        try {
-          target.setSelectionRange(restoreInfo.selectionStart, restoreInfo.selectionEnd);
-        } catch {
-          // setSelectionRange can throw on some input types — focus alone
-          // (already done above) is still a meaningful improvement.
-        }
-      }
-    }
-  }, 200);
+  editBreakdownDebounceTimer = setTimeout(syncEditBreakdownInputsToText, 200);
 });
 
 dynamicRemarksContainer.addEventListener('input', function (event) {
@@ -1180,11 +1117,37 @@ editBreakdownPreview.addEventListener('click', function (event) {
 
 saveBreakdownButton.addEventListener('click', async () => {
   if (!state.currentEditingRow) return;
+
+  // Flush any pending debounced rebuild immediately, so the remark/location
+  // inputs read below are guaranteed to already match the current Stocking
+  // Qty text — otherwise a Save clicked within 200ms of a part-count-
+  // changing edit could read a still-stale set of inputs.
+  clearTimeout(editBreakdownDebounceTimer);
+  syncEditBreakdownInputsToText();
+
+  // This modal snapshots the row once at open time into its inputs; if
+  // another action (Bulk Withdraw/Delivery/Clear on this same row, done in
+  // a modal opened on top of this one) changed the row since then, saving
+  // from that stale snapshot would silently revert it. Refuse and ask the
+  // user to reopen instead of clobbering whatever changed underneath.
+  const liveSnapshot = state.editBreakdownOpenSnapshot;
+  const stillFresh =
+    !liveSnapshot ||
+    (state.currentEditingRow.dataset.stockingQty === liveSnapshot.stockingQty &&
+      (state.currentEditingRow.dataset.remarks || '[]') === liveSnapshot.remarks &&
+      (state.currentEditingRow.dataset.locations || '[]') === liveSnapshot.locations);
+  if (!stillFresh) {
+    await customAlert(
+      'This item was changed elsewhere (e.g. a withdrawal, delivery, or clear) while this window was open. Close and reopen Edit Breakdown to see the latest data before editing again.'
+    );
+    return;
+  }
+
   setButtonLoading(saveBreakdownButton, true);
   try {
     const oldStockingQty = state.currentEditingRow.dataset.stockingQty;
-    const oldRemarks = JSON.parse(state.currentEditingRow.dataset.remarks || '[]');
-    const oldLocations = JSON.parse(state.currentEditingRow.dataset.locations || '[]');
+    const oldRemarks = getRowRemarks(state.currentEditingRow);
+    const oldLocations = getRowLocations(state.currentEditingRow);
     const newStockingQty = editBreakdownInput.value;
     const newRemarks = Array.from(dynamicRemarksContainer.querySelectorAll('.remark-part-input')).map(input => input.value.trim());
     const newLocations = Array.from(dynamicRemarksContainer.querySelectorAll('.location-part-input')).map(input => input.value.trim());
@@ -1280,19 +1243,20 @@ exportItemReportButton.addEventListener('click', async () => {
 let bulkDeliveryComboboxOptions = [];
 openBulkDeliveriesModalButton.addEventListener('click', () => {
   checkAccess(() => {
-    const sortedRows = [...state.originalRowsOrder].sort((a, b) => {
-      const stockA = calculateSingleStockingQtyTotal(formatStockingQty(a.dataset.stockingQty));
-      const stockB = calculateSingleStockingQtyTotal(formatStockingQty(b.dataset.stockingQty));
-      if (stockA > 0 && stockB <= 0) return -1;
-      if (stockA <= 0 && stockB > 0) return 1;
-      return (a.dataset.code || '').localeCompare(b.dataset.code || '');
-    });
-    bulkDeliveryComboboxOptions = sortedRows.map(row => {
-      const code = row.dataset.code;
-      const totalStock = calculateSingleStockingQtyTotal(formatStockingQty(row.dataset.stockingQty));
-      const hasStock = totalStock > 0;
-      return { value: code, label: hasStock ? `\u{1F7E2} (${totalStock.toLocaleString()})` : '\u{1F534} (Empty)' };
-    });
+    // Compute each row's total stock once, then sort/map the resulting
+    // plain-object array — instead of recomputing it for every comparison
+    // inside .sort() and again in the following .map().
+    bulkDeliveryComboboxOptions = state.originalRowsOrder
+      .map(row => ({ code: row.dataset.code, totalStock: calculateSingleStockingQtyTotal(formatStockingQty(row.dataset.stockingQty)) }))
+      .sort((a, b) => {
+        if (a.totalStock > 0 && b.totalStock <= 0) return -1;
+        if (a.totalStock <= 0 && b.totalStock > 0) return 1;
+        return (a.code || '').localeCompare(b.code || '');
+      })
+      .map(({ code, totalStock }) => ({
+        value: code,
+        label: totalStock > 0 ? `\u{1F7E2} (${totalStock.toLocaleString()})` : '\u{1F534} (Empty)',
+      }));
 
     state.pendingBulkDeliveries = [];
     bulkDelItemSearch.value = '';
@@ -1484,16 +1448,23 @@ confirmBulkDeliveryButton.addEventListener('click', async () => {
     const combined = oldQty ? `${oldQty} | ${formattedNew}` : formattedNew;
     row.dataset.stockingQty = combined;
 
-    const oldRemarks = JSON.parse(row.dataset.remarks || '[]');
+    const oldRemarks = getRowRemarks(row);
+    const oldLocations = getRowLocations(row);
     const count = getBreakdownParts(formattedNew).length;
     const specificRemarks = Array(count).fill(d.remarks);
     const finalRemarks = [...oldRemarks, ...specificRemarks];
+    // Bulk delivery doesn't collect a per-part location, but the locations
+    // array must stay index-aligned with stockingQty/remarks — pad it with
+    // empty strings for the newly delivered parts instead of leaving it
+    // short (which would silently desync every array by index from here on).
+    const finalLocations = [...oldLocations, ...Array(count).fill('')];
     row.dataset.remarks = JSON.stringify(finalRemarks);
+    row.dataset.locations = JSON.stringify(finalLocations);
 
     const finalFormatted = formatStockingQty(combined);
     const total = calculateSingleStockingQtyTotal(finalFormatted);
 
-    row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, finalRemarks, JSON.parse(row.dataset.locations || '[]'));
+    row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, finalRemarks, finalLocations);
     row.cells[2].textContent = total.toLocaleString();
     row.cells[3].textContent = finalRemarks.filter(r => r).join(' | ');
 
@@ -1533,26 +1504,48 @@ cancelBulkDelivery.addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 // Event Listeners — Bulk Withdrawal
 // ---------------------------------------------------------------------------
+// Shows the selected item's stocking breakdown (same color-coded rendering
+// as the main inventory table) above the Material Code field, so the user
+// can see OLD/Approved/HOLD batches before entering a quantity.
+function updateWithdrawBreakdownPreview(code) {
+  const row = code ? state.rowsByCode.get(code) : null;
+  if (!row) {
+    bulkWithdrawItemBreakdown.hidden = true;
+    bulkWithdrawItemBreakdown.innerHTML = '';
+    return;
+  }
+  const remarks = getRowRemarks(row);
+  const locations = getRowLocations(row);
+  const html = renderBreakdownCellHtml(row.dataset.stockingQty, remarks, locations);
+  bulkWithdrawItemBreakdown.innerHTML = html || '<em>No stock breakdown.</em>';
+  bulkWithdrawItemBreakdown.hidden = false;
+}
+
 let bulkWithdrawComboboxOptions = [];
 openBulkWithdrawModalButton.addEventListener('click', () => {
   checkAccess(() => {
-    const sortedRows = [...state.originalRowsOrder].sort((a, b) => {
-      const stockA = getWithdrawableStock(a);
-      const stockB = getWithdrawableStock(b);
-      if (stockA > 0 && stockB <= 0) return -1;
-      if (stockA <= 0 && stockB > 0) return 1;
-      return (a.dataset.code || '').localeCompare(b.dataset.code || '');
-    });
-
-    bulkWithdrawComboboxOptions = sortedRows
-      .map(row => ({ code: row.dataset.code, stock: getWithdrawableStock(row) }))
-      .filter(x => x.stock > 0)
-      .map(x => ({ value: x.code, label: `\u{1F7E2} Avail: ${x.stock.toLocaleString()}` }));
+    // Compute each row's stock/hold once up front, then sort/filter/map the
+    // resulting plain-object array — instead of calling getWithdrawableStock
+    // again for every comparison inside .sort() and a third time in .map().
+    bulkWithdrawComboboxOptions = state.originalRowsOrder
+      .map(row => ({ code: row.dataset.code, stock: getWithdrawableStock(row), hold: getHoldStock(row) }))
+      .sort((a, b) => {
+        if (a.stock > 0 && b.stock <= 0) return -1;
+        if (a.stock <= 0 && b.stock > 0) return 1;
+        return (a.code || '').localeCompare(b.code || '');
+      })
+      .filter(x => x.stock > 0 || x.hold > 0)
+      .map(x => {
+        const availIcon = x.stock > 0 ? '\u{1F7E2}' : '⚪';
+        const holdLabel = x.hold > 0 ? `  \u{1F512} Hold: ${x.hold.toLocaleString()}` : '';
+        return { value: x.code, label: `${availIcon} Avail: ${x.stock.toLocaleString()}${holdLabel}` };
+      });
 
     state.pendingBulkWithdrawals = [];
     bulkWithdrawItemSearch.value = '';
     bulkWithdrawQtyInput.value = '';
     bulkWithdrawErrorMessage.innerHTML = '';
+    updateWithdrawBreakdownPreview(null);
     renderWithdrawList();
     openModal('bulkWithdrawModal');
     setTimeout(() => bulkWithdrawItemSearch.focus(), 100);
@@ -1578,9 +1571,15 @@ bulkWithdrawInputs.forEach((input, index) => {
 
 const bulkWithdrawCombobox = attachSearchableCombobox(bulkWithdrawItemSearch, {
   getOptions: () => bulkWithdrawComboboxOptions,
-  onSelect: () => {
+  onSelect: value => {
     bulkWithdrawQtyInput.focus();
+    updateWithdrawBreakdownPreview(value);
   },
+});
+
+bulkWithdrawItemSearch.addEventListener('input', () => {
+  const code = bulkWithdrawItemSearch.value.trim();
+  updateWithdrawBreakdownPreview(state.rowsByCode.get(code) ? code : null);
 });
 
 bulkWithdrawItemSearch.addEventListener('keydown', e => {
@@ -1601,7 +1600,43 @@ bulkWithdrawQtyInput.addEventListener('keydown', e => {
   }
 });
 
-addToListWithdrawBtn.addEventListener('click', () => {
+// Checks whether `requestedTotal` can be withdrawn from `row`. If it fits
+// within non-HOLD stock, resolves immediately. If it only fits once HOLD
+// stock is included, prompts the user (with a HOLD batch breakdown) before
+// allowing it. Shows a toast (visible above the modal) when it's outright
+// insufficient even including HOLD.
+async function resolveWithdrawAvailability(row, code, requestedTotal) {
+  const maxWithdrawable = getWithdrawableStock(row);
+  if (requestedTotal <= maxWithdrawable) {
+    return { ok: true, usesHold: false };
+  }
+
+  const holdBreakdown = getHoldBreakdown(row);
+  const holdAvailable = holdBreakdown.reduce((sum, h) => sum + h.qty, 0);
+  const totalAvailable = maxWithdrawable + holdAvailable;
+
+  if (requestedTotal > totalAvailable) {
+    showToast(
+      `Cannot withdraw ${requestedTotal.toLocaleString()}. Only ${totalAvailable.toLocaleString()} is available for ${code} (including HOLD).`,
+      'error'
+    );
+    return { ok: false };
+  }
+
+  const breakdownText = holdBreakdown
+    .map(h => `• ${h.qty.toLocaleString()} — ${h.remark || 'hold'}`)
+    .join('\n');
+  const confirmed = await customConfirm(
+    `Insufficient OLD/Approved stock for ${code} — only ${maxWithdrawable.toLocaleString()} available (excluding HOLD).\n\n` +
+      `Need ${(requestedTotal - maxWithdrawable).toLocaleString()} more from HOLD stock:\n${breakdownText}\n\n` +
+      `Use HOLD stock to complete this withdrawal?`,
+    { allowEnterConfirm: true }
+  );
+  if (!confirmed) return { ok: false };
+  return { ok: true, usesHold: true };
+}
+
+addToListWithdrawBtn.addEventListener('click', async () => {
   const code = bulkWithdrawItemSearch.value.trim();
   const newQtyString = bulkWithdrawQtyInput.value.trim();
 
@@ -1616,7 +1651,6 @@ addToListWithdrawBtn.addEventListener('click', () => {
     return;
   }
 
-  const maxWithdrawable = getWithdrawableStock(row);
   const newQtyTotal = calculateSingleStockingQtyTotal(formatStockingQty(newQtyString));
 
   if (newQtyTotal <= 0) {
@@ -1635,8 +1669,9 @@ addToListWithdrawBtn.addEventListener('click', () => {
     combinedTotal = calculateSingleStockingQtyTotal(formatStockingQty(combinedQtyString));
   }
 
-  if (combinedTotal > maxWithdrawable) {
-    bulkWithdrawErrorMessage.innerHTML = `Cannot withdraw <strong>${combinedTotal.toLocaleString()}</strong>.<br>Only <strong>${maxWithdrawable.toLocaleString()}</strong> is available for ${escapeHtml(code)}.`;
+  const availability = await resolveWithdrawAvailability(row, code, combinedTotal);
+  if (!availability.ok) {
+    bulkWithdrawErrorMessage.innerHTML = `Cannot withdraw <strong>${combinedTotal.toLocaleString()}</strong> for ${escapeHtml(code)}.`;
     return;
   }
 
@@ -1644,14 +1679,17 @@ addToListWithdrawBtn.addEventListener('click', () => {
 
   if (existingIndex > -1) {
     state.pendingBulkWithdrawals[existingIndex].qty = combinedQtyString;
+    state.pendingBulkWithdrawals[existingIndex].usesHold = availability.usesHold;
+    state.pendingBulkWithdrawals[existingIndex].totalQty = combinedTotal;
   } else {
-    state.pendingBulkWithdrawals.push({ code: code, qty: newQtyString });
+    state.pendingBulkWithdrawals.push({ code: code, qty: newQtyString, usesHold: availability.usesHold, totalQty: combinedTotal });
   }
 
   renderWithdrawList();
 
   bulkWithdrawItemSearch.value = '';
   bulkWithdrawQtyInput.value = '';
+  updateWithdrawBreakdownPreview(null);
   bulkWithdrawItemSearch.focus();
 });
 
@@ -1668,23 +1706,36 @@ confirmBulkWithdrawButton.addEventListener('click', async () => {
 
   setButtonLoading(confirmBulkWithdrawButton, true);
   try {
-    if (!(await customConfirm(`You are about to withdraw from ${state.pendingBulkWithdrawals.length} item(s). Continue?`))) return;
+    const holdCount = state.pendingBulkWithdrawals.filter(item => item.usesHold).length;
+    const holdNote = holdCount > 0 ? `\n\n⚠️ ${holdCount} item(s) will dip into HOLD stock.` : '';
+    if (
+      !(await customConfirm(
+        `You are about to withdraw from ${state.pendingBulkWithdrawals.length} item(s). Continue?${holdNote}`
+      ))
+    )
+      return;
 
     let successfulWithdrawals = 0;
     let transactionDetails = [];
     const changedCodes = [];
+    const failedMessages = [];
 
     state.pendingBulkWithdrawals.forEach(item => {
-      const totalWithdrawQty = calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
-      const result = performWithdrawal(item.code, totalWithdrawQty);
+      const totalWithdrawQty = item.totalQty ?? calculateSingleStockingQtyTotal(formatStockingQty(item.qty));
+      const result = performWithdrawal(item.code, totalWithdrawQty, item.usesHold);
       if (result.success) {
         successfulWithdrawals++;
         transactionDetails.push(`${item.code} (-${totalWithdrawQty.toLocaleString()})`);
         changedCodes.push(item.code);
       } else {
         console.error(result.message);
+        failedMessages.push(result.message);
       }
     });
+
+    if (failedMessages.length > 0) {
+      showToast(failedMessages.join(' '), 'error');
+    }
 
     if (successfulWithdrawals > 0) {
       await applyFiltersAndSort();
@@ -1852,10 +1903,11 @@ shiftToggleButton.addEventListener('click', toggleShift);
 // ---------------------------------------------------------------------------
 // DOMContentLoaded — Initialize the application
 // ---------------------------------------------------------------------------
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initAuth();
   initCustomSelects();
   updateDateTimeAndShift();
+  await restoreSessionIfValid();
   loadDataFromAPI();
 
   const saveQueueRetryButton = document.getElementById('saveQueueRetryButton');

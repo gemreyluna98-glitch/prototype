@@ -28,6 +28,28 @@ export function getBreakdownParts(breakdownString) {
   return breakdownString ? breakdownString.split(' | ') : [];
 }
 
+// --- Row Dataset Accessors ---
+// Shared, defensive accessors for a row's JSON-encoded remarks/locations —
+// used everywhere instead of each call site repeating its own
+// `JSON.parse(row.dataset.X || '[]')`, so a malformed value (which would
+// otherwise throw uncaught wherever it happened to be read) degrades to an
+// empty array instead of breaking whatever feature touched that row first.
+export function getRowRemarks(row) {
+  try {
+    return JSON.parse(row.dataset.remarks || '[]');
+  } catch {
+    return [];
+  }
+}
+
+export function getRowLocations(row) {
+  try {
+    return JSON.parse(row.dataset.locations || '[]');
+  } catch {
+    return [];
+  }
+}
+
 export function calculateSingleStockingQtyTotal(breakdownString) {
   return getBreakdownParts(formatStockingQty(breakdownString)).reduce((total, part) => {
     let value = 0;
@@ -41,22 +63,36 @@ export function calculateSingleStockingQtyTotal(breakdownString) {
   }, 0);
 }
 
-// --- Remark Color Coding ---
-
-const REMARK_COLOR_MAP = [
-  { keywords: ['hold'], colorClass: 'color-orange' },
-  { keywords: ['approve', 'approved'], colorClass: 'color-pink' },
-  { keywords: ['first out', 'old'], colorClass: 'color-green' },
-  { keywords: [], colorClass: 'color-grey', isDefault: true },
+// --- Remark Status Classification ---
+// Single source of truth for "what does this remark's status prefix mean" —
+// used for color-coding, withdrawal priority (getPriority), hold-exclusion
+// (getWithdrawableStock/getHoldBreakdown), and filtering (applyFiltersAndSort,
+// applyBulkClearFilters), so a new status keyword only needs to be added
+// here once instead of in each of those places separately.
+const REMARK_STATUS_RULES = [
+  { status: 'hold', keywords: ['hold'] },
+  { status: 'approved', keywords: ['approve'] }, // covers "approve" and "approved"
+  { status: 'old', keywords: ['first out', 'old'] },
 ];
 
-export function getColorClassForRemark(remark) {
-  const lowerRemark = remark.toLowerCase().trim();
-  if (!lowerRemark) return REMARK_COLOR_MAP.find(m => m.isDefault)?.colorClass || 'color-default';
-  for (const mapping of REMARK_COLOR_MAP) {
-    if (!mapping.isDefault && mapping.keywords.some(kw => lowerRemark.startsWith(kw))) return mapping.colorClass;
+export function classifyRemark(remark) {
+  const lower = (remark || '').toLowerCase().trim();
+  if (!lower) return 'regular';
+  for (const { status, keywords } of REMARK_STATUS_RULES) {
+    if (keywords.some(kw => lower.startsWith(kw))) return status;
   }
-  return REMARK_COLOR_MAP.find(m => m.isDefault)?.colorClass || 'color-default';
+  return 'regular';
+}
+
+const REMARK_STATUS_COLOR_CLASS = {
+  hold: 'color-orange',
+  approved: 'color-pink',
+  old: 'color-green',
+  regular: 'color-grey',
+};
+
+export function getColorClassForRemark(remark) {
+  return REMARK_STATUS_COLOR_CLASS[classifyRemark(remark)] || 'color-default';
 }
 
 export function escapeHtml(str) {
@@ -80,10 +116,10 @@ export function isSimplifyBreakdownOn() {
   return cb ? cb.checked : false;
 }
 
-export function simplifyBreakdownForDisplay(formattedBreakdownString, remarksArray, locationsArray) {
-  const parts = getBreakdownParts(formattedBreakdownString);
-  remarksArray = remarksArray || [];
-  locationsArray = locationsArray || [];
+// Groups breakdown parts that share a multiplicand (e.g. two "5\u00d724000" and
+// "3\u00d724000" parts become one group with multipliers [5, 3]) \u2014 used by
+// simplifyBreakdownForDisplay below.
+export function groupBreakdownParts(parts) {
   const groups = [];
   const keyIndexMap = new Map();
   parts.forEach((part, idx) => {
@@ -104,6 +140,14 @@ export function simplifyBreakdownForDisplay(formattedBreakdownString, remarksArr
       groups.push({ type: 'plain', raw: trimmed, indices: [idx] });
     }
   });
+  return groups;
+}
+
+export function simplifyBreakdownForDisplay(formattedBreakdownString, remarksArray, locationsArray) {
+  const parts = getBreakdownParts(formattedBreakdownString);
+  remarksArray = remarksArray || [];
+  locationsArray = locationsArray || [];
+  const groups = groupBreakdownParts(parts);
   const newParts = [],
     newRemarks = [],
     newLocations = [];
@@ -122,14 +166,17 @@ export function simplifyBreakdownForDisplay(formattedBreakdownString, remarksArr
   return { formatted: newParts.join(' | '), remarks: newRemarks, locations: newLocations };
 }
 
-export function formatStockingQtyAndRemarksForDisplay(breakdownString, remarksArray, locationsArray, shorten) {
+// `plain`: omit the color-coding span (and its title attribute) but keep
+// everything else \u2014 shortening, the location tag \u2014 identical. Used by the
+// print flow's "no colors" mode, so it doesn't need its own hand-rolled copy
+// of this same part-by-part formatting.
+export function formatStockingQtyAndRemarksForDisplay(breakdownString, remarksArray, locationsArray, shorten, plain = false) {
   const parts = getBreakdownParts(breakdownString);
   if (!parts.length || (parts.length === 1 && !parts[0])) return '';
   locationsArray = locationsArray || [];
   return parts
     .map((part, index) => {
       const remark = remarksArray[index] || '';
-      const colorClass = getColorClassForRemark(remark);
       const loc = (locationsArray[index] || '').trim();
       const locTag = loc
         ? `<span class="location-tag" title="Building/Rack">${escapeHtml(loc)}</span>`
@@ -141,9 +188,11 @@ export function formatStockingQtyAndRemarksForDisplay(breakdownString, remarksAr
         const multMatch = trimmedPart.match(/^([\d.,]+)\s*\u00d7/);
         if (multMatch) {
           displayText = `(${multMatch[1]})`;
-          titleAttr = ` title="${escapeHtml(trimmedPart)}"`;
+          if (!plain) titleAttr = ` title="${escapeHtml(trimmedPart)}"`;
         }
       }
+      if (plain) return `${escapeHtml(displayText)}${locTag}`;
+      const colorClass = getColorClassForRemark(remark);
       return `<span class="${colorClass}"${titleAttr}>${escapeHtml(displayText)}</span>${locTag}`;
     })
     .join(' | ');
@@ -165,9 +214,7 @@ export function renderBreakdownCellHtml(rawStockingQty, remarksArray, locationsA
 
 export function refreshAllBreakdownDisplays() {
   state.originalRowsOrder.forEach(row => {
-    const remarks = JSON.parse(row.dataset.remarks || '[]');
-    const locations = JSON.parse(row.dataset.locations || '[]');
-    row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, remarks, locations);
+    row.cells[1].innerHTML = renderBreakdownCellHtml(row.dataset.stockingQty, getRowRemarks(row), getRowLocations(row));
   });
 }
 
@@ -265,29 +312,66 @@ export function mergeDeliveriesBreakdown(existingQty, newQty, capacity) {
 
 export function getWithdrawableStock(row) {
   const stockingQty = row.dataset.stockingQty;
-  const remarks = JSON.parse(row.dataset.remarks || '[]');
+  const remarks = getRowRemarks(row);
   const parts = getBreakdownParts(formatStockingQty(stockingQty));
   let total = 0;
   parts.forEach((part, index) => {
-    const remark = (remarks[index] || '').toLowerCase();
-    if (!remark.startsWith('hold')) {
+    if (classifyRemark(remarks[index]) !== 'hold') {
       total += calculateSingleStockingQtyTotal(part);
     }
   });
   return total;
 }
 
-export function performWithdrawal(materialCode, withdrawAmount) {
+export function getHoldStock(row) {
+  return getHoldBreakdown(row).reduce((sum, h) => sum + h.qty, 0);
+}
+
+export function getHoldBreakdown(row) {
+  const stockingQty = row.dataset.stockingQty;
+  const remarks = getRowRemarks(row);
+  const parts = getBreakdownParts(formatStockingQty(stockingQty));
+  const breakdown = [];
+  parts.forEach((part, index) => {
+    const remark = remarks[index] || '';
+    if (classifyRemark(remark) === 'hold') {
+      breakdown.push({ qty: calculateSingleStockingQtyTotal(part), remark });
+    }
+  });
+  return breakdown;
+}
+
+// `allowHold`: when true, HOLD-tagged batches are added to the deduction pool
+// as the lowest priority (after OLD/first out, approved, and regular stock) —
+// used only after the caller has explicitly confirmed dipping into HOLD stock.
+export function performWithdrawal(materialCode, withdrawAmount, allowHold = false) {
   const targetRow = state.rowsByCode.get(materialCode);
   if (!targetRow) return { success: false, message: `Item code ${materialCode} not found.` };
 
   const totalWithdrawable = getWithdrawableStock(targetRow);
-  if (withdrawAmount > totalWithdrawable) {
+  const holdStock = getHoldStock(targetRow);
+  const totalWithHold = totalWithdrawable + holdStock;
+
+  if (withdrawAmount > totalWithdrawable && !allowHold) {
+    if (withdrawAmount > totalWithHold) {
+      return { success: false, message: `Insufficient stock for ${materialCode}.` };
+    }
+    return {
+      success: false,
+      needsHoldConfirmation: true,
+      available: totalWithdrawable,
+      holdAvailable: holdStock,
+      holdBreakdown: getHoldBreakdown(targetRow),
+      message: `Insufficient OLD/Approved stock for ${materialCode}. Only ${totalWithdrawable} available (excluding HOLD).`,
+    };
+  }
+
+  if (withdrawAmount > totalWithHold) {
     return { success: false, message: `Insufficient stock for ${materialCode}.` };
   }
 
-  const oldRemarks = JSON.parse(targetRow.dataset.remarks || '[]');
-  const oldLocations = JSON.parse(targetRow.dataset.locations || '[]');
+  const oldRemarks = getRowRemarks(targetRow);
+  const oldLocations = getRowLocations(targetRow);
   const oldParts = getBreakdownParts(formatStockingQty(targetRow.dataset.stockingQty));
 
   // Parses a date like MM-DD-YYYY or MM/DD/YYYY out of a remark string.
@@ -314,18 +398,17 @@ export function performWithdrawal(materialCode, withdrawAmount) {
     remarkDate: parseRemarkDate(oldRemarks[index] || ''),
   }));
 
-  const getPriority = remark => {
-    const lower = remark.toLowerCase();
-    if (lower.startsWith('old') || lower.startsWith('first out')) return 1;
-    if (lower.startsWith('approved')) return 2;
-    return 3;
-  };
+  const STATUS_PRIORITY = { old: 1, approved: 2, regular: 3, hold: 4 };
+  const getPriority = remark => STATUS_PRIORITY[classifyRemark(remark)];
 
   // Remarks with no parseable date are treated as the NEWEST within their
   // tier (i.e. deducted last), never the oldest.
   const dateKey = p => (p.remarkDate === null ? Infinity : p.remarkDate);
 
-  const withdrawableParts = partsWithDetails.filter(p => !p.lowerRemark.startsWith('hold'));
+  // HOLD batches only enter the pool when the caller has confirmed dipping
+  // into HOLD (allowHold) — and even then they sort last (priority 4), so
+  // they're never touched before OLD/approved/regular stock is exhausted.
+  const withdrawableParts = partsWithDetails.filter(p => allowHold || classifyRemark(p.lowerRemark) !== 'hold');
   const strictSort = (parts, amount) => {
     // Determine the reference item (for bundle-size matching) from the
     // priority+date order, not the raw unsorted array.
@@ -404,14 +487,24 @@ export function performWithdrawal(materialCode, withdrawAmount) {
   // the batch that was actually just dipped into.
   partsWithDetails.forEach(p => {
     if (p.partiallyConsumed && p.value !== '') {
-      if (!/first\s*out|old/i.test(p.remark)) {
-        p.remark = p.remark ? `first out ${p.remark}` : 'first out';
+      // Use getPriority (startsWith-based) rather than a raw regex — a plain
+      // substring match on "old" false-positives on remarks like "hold QC".
+      if (getPriority(p.lowerRemark) !== 1) {
+        // A dipped-into HOLD or approved batch has moved on from that status
+        // — drop the "hold"/"approve(d)" keyword itself (keeping any date/
+        // detail after it) so the remark doesn't confusingly read as both
+        // "first out" and "hold"/"approved" at once.
+        const remarkStatus = classifyRemark(p.remark);
+        const remainder = remarkStatus === 'hold' || remarkStatus === 'approved'
+          ? p.remark.replace(/^(hold|approved?)\s*/i, '').trim()
+          : p.remark;
+        p.remark = remainder ? `first out ${remainder}` : 'first out';
         p.lowerRemark = p.remark.toLowerCase();
       }
     }
   });
 
-  const remainingWithdrawable = partsWithDetails.filter(p => p.value !== '' && !p.lowerRemark.startsWith('hold'));
+  const remainingWithdrawable = partsWithDetails.filter(p => p.value !== '' && classifyRemark(p.lowerRemark) !== 'hold');
   const hasOldItems = remainingWithdrawable.some(p => getPriority(p.lowerRemark) === 1);
   if (!hasOldItems) {
     const approvedItems = remainingWithdrawable.filter(p => getPriority(p.lowerRemark) === 2);
@@ -469,18 +562,107 @@ export function performWithdrawal(materialCode, withdrawAmount) {
 
 // --- Filter & Sort ---
 
+// Shared item-type/remark-status/data-presence predicate — used by both the
+// main table's filter (applyFiltersAndSort) and the Bulk Clear Qty modal's
+// own filter (applyBulkClearFilters in app.js), which used to each carry
+// their own copy of this exact logic.
+export function matchesInventoryFilters(row, { itemType, remarkType, dataType }) {
+  const code = (row.dataset.code || '').toUpperCase();
+  const remarks = getRowRemarks(row).map(r => r.toLowerCase().trim());
+  const qtyText = row.cells[1].textContent.trim();
+
+  const passesItem =
+    itemType === 'ALL' ||
+    (itemType === 'LBL' && code.startsWith('LBL')) ||
+    (itemType === 'CTN' && code.startsWith('CTN')) ||
+    (itemType === 'PLASTIC' && (code.startsWith('BAG') || code.includes('BUNDLE'))) ||
+    (itemType === 'OTHERS' && !/^(LBL|CTN|BAG)|BUNDLE/.test(code));
+
+  const passesData =
+    dataType === 'ALL' ||
+    (dataType === 'WITH_DATA' && qtyText) ||
+    (dataType === 'WITHOUT_DATA' && !qtyText);
+
+  const hasHold = remarks.some(r => classifyRemark(r) === 'hold');
+  const hasApproved = remarks.some(r => classifyRemark(r) === 'approved');
+  const hasOld = remarks.some(r => classifyRemark(r) === 'old');
+  const hasAnyRemark = remarks.some(r => r !== '');
+  let passesRemark = false;
+  switch (remarkType) {
+    case 'ALL':
+      passesRemark = true;
+      break;
+    case 'HOLD':
+      passesRemark = hasHold;
+      break;
+    case 'APPROVED':
+      passesRemark = hasApproved;
+      break;
+    case 'FIRSTOUT_OLD':
+      passesRemark = hasOld;
+      break;
+    case 'NO_REMARK':
+      passesRemark = !hasAnyRemark;
+      break;
+    case 'OTHER_REMARKS':
+      passesRemark = hasAnyRemark && !hasHold && !hasApproved && !hasOld;
+      break;
+  }
+
+  return passesItem && passesRemark && passesData;
+}
+
+// Lazily cached on first use — these filter-toolbar elements are static
+// (never removed/recreated) for the lifetime of the page, so re-querying
+// all 11 of them via getElementById on every applyFiltersAndSort call (the
+// debounced-search hot path) was pure repeated work.
+let filterElsCache = null;
+function getFilterEls() {
+  if (!filterElsCache) {
+    filterElsCache = {
+      itemTypeFilter: document.getElementById('itemTypeFilter'),
+      remarksFilter: document.getElementById('remarksFilter'),
+      dataPresenceFilter: document.getElementById('dataPresenceFilter'),
+      materialCodeSort: document.getElementById('materialCodeSort'),
+      searchBar: document.getElementById('searchBar'),
+      enableMovementFilter: document.getElementById('enableMovementFilter'),
+      moveDateFrom: document.getElementById('moveDateFrom'),
+      moveTimeFrom: document.getElementById('moveTimeFrom'),
+      moveDateTo: document.getElementById('moveDateTo'),
+      moveTimeTo: document.getElementById('moveTimeTo'),
+      movementMode: document.getElementById('movementMode'),
+    };
+  }
+  return filterElsCache;
+}
+
+// A manual click (state.movementOverrides) always wins over the automatic
+// date-range detection, in either direction — shared by the filter pass
+// above, the ★ rendering below, and the print flow (export.js) so all three
+// agree on which items currently count as "moved".
+export function isItemMarkedMoved(code, movedItemsSet) {
+  return state.movementOverrides.has(code) ? state.movementOverrides.get(code) : movedItemsSet.has(code);
+}
+
 export async function applyFiltersAndSort() {
-  const itemType = document.getElementById('itemTypeFilter').value;
-  const remarkType = document.getElementById('remarksFilter').value;
-  const dataType = document.getElementById('dataPresenceFilter').value;
-  const sortType = document.getElementById('materialCodeSort').value;
-  const searchTerm = document.getElementById('searchBar').value.toLowerCase();
-  const enableMovementFilter = document.getElementById('enableMovementFilter');
-  const moveDateFrom = document.getElementById('moveDateFrom');
-  const moveTimeFrom = document.getElementById('moveTimeFrom');
-  const moveDateTo = document.getElementById('moveDateTo');
-  const moveTimeTo = document.getElementById('moveTimeTo');
-  const movementMode = document.getElementById('movementMode');
+  const {
+    itemTypeFilter,
+    remarksFilter,
+    dataPresenceFilter,
+    materialCodeSort,
+    searchBar,
+    enableMovementFilter,
+    moveDateFrom,
+    moveTimeFrom,
+    moveDateTo,
+    moveTimeTo,
+    movementMode,
+  } = getFilterEls();
+  const itemType = itemTypeFilter.value;
+  const remarkType = remarksFilter.value;
+  const dataType = dataPresenceFilter.value;
+  const sortType = materialCodeSort.value;
+  const searchTerm = searchBar.value.toLowerCase();
 
   const isMovementActive = enableMovementFilter.checked;
   const hasInvalidMovementRange =
@@ -494,11 +676,16 @@ export async function applyFiltersAndSort() {
       : new Set();
   const showOnlyMoved = isMovementActive && !hasInvalidMovementRange && movementMode.value === 'FILTER_ONLY';
 
+  // Counted here (once per row, unconditionally — Array.prototype.filter's
+  // callback runs for every row regardless of which branch returns false)
+  // instead of updateStatSummaryCards doing its own separate full pass over
+  // every row afterward just to recompute the same "does this row have a
+  // hold batch" check.
+  let holdCount = 0;
   let rowsToShow = [...state.originalRowsOrder];
   rowsToShow = rowsToShow.filter(row => {
     const code = row.dataset.code;
-    const remarks = JSON.parse(row.dataset.remarks || '[]').map(r => r.toLowerCase().trim());
-    const qtyText = row.cells[1].textContent.trim();
+    if (getRowRemarks(row).some(r => classifyRemark(r) === 'hold')) holdCount++;
 
     if (
       searchTerm &&
@@ -509,44 +696,9 @@ export async function applyFiltersAndSort() {
         .includes(searchTerm)
     )
       return false;
-    const passesItem =
-      itemType === 'ALL' ||
-      (itemType === 'LBL' && code.startsWith('LBL')) ||
-      (itemType === 'CTN' && code.startsWith('CTN')) ||
-      (itemType === 'PLASTIC' && (code.startsWith('BAG') || code.includes('BUNDLE'))) ||
-      (itemType === 'OTHERS' && !/^(LBL|CTN|BAG)|BUNDLE/.test(code));
-    const passesData =
-      dataType === 'ALL' ||
-      (dataType === 'WITH_DATA' && qtyText) ||
-      (dataType === 'WITHOUT_DATA' && !qtyText);
-    let passesRemark = false;
-    const hasHold = remarks.some(r => r.startsWith('hold'));
-    const hasApproved = remarks.some(r => r.startsWith('approve') || r.startsWith('approved'));
-    const hasOld = remarks.some(r => r.startsWith('first out') || r.startsWith('old'));
-    const hasAnyRemark = remarks.some(r => r !== '');
-    switch (remarkType) {
-      case 'ALL':
-        passesRemark = true;
-        break;
-      case 'HOLD':
-        passesRemark = hasHold;
-        break;
-      case 'APPROVED':
-        passesRemark = hasApproved;
-        break;
-      case 'FIRSTOUT_OLD':
-        passesRemark = hasOld;
-        break;
-      case 'NO_REMARK':
-        passesRemark = !hasAnyRemark;
-        break;
-      case 'OTHER_REMARKS':
-        passesRemark = hasAnyRemark && !hasHold && !hasApproved && !hasOld;
-        break;
-    }
-
-    if (showOnlyMoved && !movedItemsSet.has(code)) return false;
-    return passesItem && passesRemark && passesData;
+    if (!matchesInventoryFilters(row, { itemType, remarkType, dataType })) return false;
+    if (showOnlyMoved && !isItemMarkedMoved(code, movedItemsSet)) return false;
+    return true;
   });
 
   if (sortType !== 'NONE') {
@@ -573,9 +725,16 @@ export async function applyFiltersAndSort() {
     for (const row of rowsToShow) {
       const code = row.dataset.code;
       const codeCell = row.cells[0];
-      const isMoved = isMovementActive && movedItemsSet.has(code);
+      const isMoved = isMovementActive && isItemMarkedMoved(code, movedItemsSet);
       const highlightedCode = highlightMatch(code, searchTerm);
-      if (isMoved) {
+      if (isMovementActive) {
+        // Clickable in either state while Mark Movement is active, so an
+        // item can be manually checked off (or un-checked) regardless of
+        // whether the date range already auto-detected it \u2014 see
+        // toggleMovementMark in app.js. A manual click always wins, in
+        // either direction (isItemMarkedMoved above).
+        codeCell.innerHTML = `<span class="movement-star-toggle${isMoved ? ' is-marked' : ''}" data-code="${escapeHtml(code)}" title="Click to ${isMoved ? 'unmark' : 'mark'} as moved">\u2605</span> ${highlightedCode}`;
+      } else if (isMoved) {
         codeCell.innerHTML = `<span style="color: red; font-weight: bold;">\u2605</span> ${highlightedCode}`;
       } else {
         codeCell.innerHTML = highlightedCode;
@@ -586,19 +745,14 @@ export async function applyFiltersAndSort() {
 
   renderHistoryLog(searchTerm);
 
-  updateStatSummaryCards(rowsToShow.length);
+  updateStatSummaryCards(rowsToShow.length, holdCount);
 }
 
-function updateStatSummaryCards(shownCount) {
+function updateStatSummaryCards(shownCount, holdCount) {
   const totalEl = document.getElementById('statTotalSkus');
   const shownEl = document.getElementById('statShownSkus');
   const holdEl = document.getElementById('statHoldSkus');
   if (!totalEl || !shownEl || !holdEl) return;
-
-  const holdCount = state.originalRowsOrder.filter(row => {
-    const remarks = JSON.parse(row.dataset.remarks || '[]').map(r => r.toLowerCase().trim());
-    return remarks.some(r => r.startsWith('hold'));
-  }).length;
 
   totalEl.textContent = state.originalRowsOrder.length.toLocaleString();
   shownEl.textContent = shownCount.toLocaleString();

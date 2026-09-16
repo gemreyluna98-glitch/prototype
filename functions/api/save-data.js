@@ -23,7 +23,29 @@ export async function onRequestPost(context) {
       transactionHistory,  // full-replace: Restore / Clear History
       palletCapacities,    // full-replace: Restore
       changedPalletCapacity, // day-to-day: single code that changed
+      operationId,         // full-replace only: idempotency marker, see below
     } = await request.json();
+
+    // Full-replace saves aren't naturally safe to retry the same way the
+    // incremental paths are (item/pallet upserts are idempotent, but
+    // transaction_history's insert-then-cutoff-delete swap isn't — see
+    // below). If this exact operation (same id, generated once client-side
+    // and resent verbatim on retry) already fully completed, short-circuit
+    // to a plain success without touching any data, instead of redoing —
+    // and potentially duplicating — the whole swap. Checked before
+    // validation too, so a retried huge Restore doesn't even pay for
+    // re-validating thousands of rows it already knows are done.
+    if (operationId) {
+      try {
+        const already = await env.DB.prepare('SELECT 1 FROM save_operations WHERE operation_id = ?').bind(operationId).first();
+        if (already) {
+          return Response.json({ success: true, message: 'Data saved successfully' }, { headers: corsHeaders });
+        }
+      } catch {
+        // Table may not exist yet on an older DB — fail open (no idempotency
+        // check) rather than blocking the save over it.
+      }
+    }
 
     // Validate payloads before touching the database — reject the whole
     // request on the first bad entry rather than partially applying it.
@@ -121,10 +143,20 @@ export async function onRequestPost(context) {
 
     if (newHistoryEntries !== undefined) {
       // Incremental path: just insert the new log entries (day-to-day).
+      // ON CONFLICT(client_id) DO NOTHING makes a retried save of the same
+      // (already-committed) entry a safe no-op instead of a duplicate row —
+      // e.g. the write commits but the response is lost (network blip),
+      // the client still sees it as failed and retries with the identical
+      // payload, including the same client-generated id. A log entry
+      // without a client_id (older cached frontend mid-deploy) just inserts
+      // normally, same as before.
       for (const log of newHistoryEntries) {
         statements.push(
-          env.DB.prepare('INSERT INTO transaction_history (timestamp, action, code, details, meta) VALUES (?, ?, ?, ?, ?)')
-            .bind(log.timestamp, log.action, log.code ?? '-', log.details ?? '', log.meta ? JSON.stringify(log.meta) : null)
+          env.DB.prepare(
+            `INSERT INTO transaction_history (timestamp, action, code, details, meta, client_id)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(client_id) DO NOTHING`
+          ).bind(log.timestamp, log.action, log.code ?? '-', log.details ?? '', log.meta ? JSON.stringify(log.meta) : null, log.clientId ?? null)
         );
       }
     } else if (transactionHistory !== undefined) {
@@ -176,6 +208,20 @@ export async function onRequestPost(context) {
       for (const code of staleCapCodes) {
         statements.push(env.DB.prepare('DELETE FROM pallet_capacities WHERE code = ?').bind(code));
       }
+    }
+
+    if (operationId) {
+      // Marks this operation done — must be the very last statement, so it
+      // only lands in the final chunk and only commits once everything
+      // before it in that same chunk has already succeeded. INSERT OR
+      // IGNORE rather than a plain INSERT: harmless if this exact id
+      // somehow already got marked (e.g. two overlapping requests, which
+      // the client's save queue shouldn't produce, but this stays a safe
+      // no-op either way instead of erroring).
+      statements.push(
+        env.DB.prepare('INSERT OR IGNORE INTO save_operations (operation_id, completed_at) VALUES (?, ?)')
+          .bind(operationId, new Date().toISOString())
+      );
     }
 
     if (statements.length > 0) {

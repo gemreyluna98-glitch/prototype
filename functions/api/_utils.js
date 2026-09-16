@@ -32,7 +32,10 @@ export function corsResponse(env, status = 200, body = null) {
  * createSessionToken/verifySessionToken below) — NOT the raw password. The
  * frontend exchanges the password for a token once via /api/verify-password,
  * then sends that token as the Bearer credential on every later request.
- * Returns { ok: true } or { ok: false, response } with a ready-to-return 401.
+ * Returns { ok: true, sid } or { ok: false, response } with a ready-to-return
+ * 401. `sid` is the verified session's id, so callers that need to act on
+ * this exact session (e.g. /api/logout) can scope their write to it instead
+ * of blindly touching whatever is currently in active_session.
  */
 export async function verifyAuth(request, env) {
   if (!env.SYSTEM_PASSWORD) {
@@ -68,7 +71,7 @@ export async function verifyAuth(request, env) {
     }
   }
 
-  return { ok: true };
+  return { ok: true, sid: result.sid };
 }
 
 // --- Input Validation ---
@@ -128,6 +131,14 @@ export function validateLogEntry(log) {
   if (log.action.length > 100) return { valid: false, error: 'Log action exceeds max length.' };
   if (log.details && typeof log.details === 'string' && log.details.length > 2000) {
     return { valid: false, error: 'Log details exceeds max length (2000).' };
+  }
+  // Optional — older cached frontends won't send it (fine, save-data.js
+  // treats a missing clientId as NULL), but if present it must be a
+  // reasonably-sized string so it can't be used to bloat the column.
+  if (log.clientId !== undefined && log.clientId !== null) {
+    if (typeof log.clientId !== 'string' || log.clientId.length > 100) {
+      return { valid: false, error: 'Log clientId must be a string up to 100 characters.' };
+    }
   }
   return { valid: true };
 }

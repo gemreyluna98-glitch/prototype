@@ -24,7 +24,11 @@ export async function onRequestPost(context) {
 
   if (env.DB) {
     try {
-      await env.DB.prepare('DELETE FROM active_session WHERE id = 1').run();
+      // Scoped to this exact session (not just "row id 1") — otherwise a
+      // login that lands between the verifyAuth check above and this DELETE
+      // would have its brand-new session silently deleted instead of this
+      // (already-superseded) one.
+      await env.DB.prepare('DELETE FROM active_session WHERE id = 1 AND session_id = ?').bind(auth.sid).run();
     } catch {
       // Best-effort — if this fails, the row just expires naturally after
       // 24h (see verify-password.js's stillActive check), so don't block

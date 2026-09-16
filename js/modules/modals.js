@@ -12,15 +12,22 @@ import {
   applyBuildingRackVisibility,
   getColorClassForRemark,
   escapeHtml,
+  getRowRemarks,
+  getRowLocations,
 } from './inventory.js';
 
 // --- Edit Breakdown Modal ---
 
 export function openEditBreakdownModal(row) {
   state.currentEditingRow = row;
+  state.editBreakdownOpenSnapshot = {
+    stockingQty: row.dataset.stockingQty || '',
+    remarks: row.dataset.remarks || '[]',
+    locations: row.dataset.locations || '[]',
+  };
   document.getElementById('editBreakdownInput').value = formatStockingQty(row.dataset.stockingQty);
-  const remarks = JSON.parse(row.dataset.remarks || '[]');
-  const locations = JSON.parse(row.dataset.locations || '[]');
+  const remarks = getRowRemarks(row);
+  const locations = getRowLocations(row);
   const parts = getBreakdownParts(formatStockingQty(row.dataset.stockingQty));
   state.lastEditBreakdownParts = parts;
   state.markedForDeletionIndices = new Set();

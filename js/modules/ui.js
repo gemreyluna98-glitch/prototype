@@ -92,7 +92,12 @@ function glassDialog(message, { showCancel, allowEnterConfirm = false } = {}) {
     }
     okBtn.onclick = () => cleanup(true);
     cancelBtn.onclick = () => cleanup(false);
-    document.addEventListener('keydown', onKeyDown);
+    // Deferred to a new task: a dialog opened synchronously from a keydown
+    // handler (e.g. pressing Enter to submit a form that itself opens a
+    // confirm) would otherwise have this listener attached while that same
+    // Enter keydown is still bubbling — instantly auto-confirming the dialog
+    // before it's ever seen.
+    setTimeout(() => document.addEventListener('keydown', onKeyDown), 0);
   });
 }
 
@@ -199,7 +204,9 @@ export function toggleShift() {
 
 // --- Filename Generation ---
 
-export function generateBackupFilename() {
+// Shared by generateBackupFilename/generateReportFilename below — both need
+// the exact same "date_time_shift" suffix, differing only in their prefix.
+function formatDateTimeShiftForFilename() {
   const dateValue = document.getElementById('currentDate').value;
   const [year, month, day] = dateValue.split('-');
   const shortYear = year.slice(-2);
@@ -213,22 +220,13 @@ export function generateBackupFilename() {
   const formattedTime = `${hours}-${minutes}-${ampm}`;
   const shiftValue = document.getElementById('currentShift').value;
   const shiftAbbreviation = shiftValue === 'Day Shift' ? 'DS' : 'NS';
-  return `backup_${formattedDate}_${formattedTime}_${shiftAbbreviation}.xlsx`;
+  return `${formattedDate}_${formattedTime}_${shiftAbbreviation}`;
+}
+
+export function generateBackupFilename() {
+  return `backup_${formatDateTimeShiftForFilename()}.xlsx`;
 }
 
 export function generateReportFilename() {
-  const dateValue = document.getElementById('currentDate').value;
-  const [year, month, day] = dateValue.split('-');
-  const shortYear = year.slice(-2);
-  const formattedDate = `${month}-${day}-${shortYear}`;
-  const timeValue = document.getElementById('currentTime').value;
-  let [hours, minutes] = timeValue.split(':');
-  hours = parseInt(hours, 10);
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-  const formattedTime = `${hours}-${minutes}-${ampm}`;
-  const shiftValue = document.getElementById('currentShift').value;
-  const shiftAbbreviation = shiftValue === 'Day Shift' ? 'DS' : 'NS';
-  return `report_${formattedDate}_${formattedTime}_${shiftAbbreviation}.xlsx`;
+  return `report_${formatDateTimeShiftForFilename()}.xlsx`;
 }

@@ -234,7 +234,7 @@
             </div>
             <div class="table-container">
                 <table id="historyTable">
-                    <thead> <tr> <th>Date & Time</th> <th>Action</th> <th>Material Code</th> <th>Details</th> </tr> </thead>
+                    <thead> <tr> <th>Date & Time</th> <th>Action</th> <th>Material Code</th> <th>Qty Change</th> <th>Details</th> </tr> </thead>
                     <tbody id="historyTableBody"></tbody>
                 </table>
             </div>
@@ -359,6 +359,8 @@
     <div id="bulkWithdrawModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="bulkWithdrawModalTitle">
         <div class="modal-content" style="max-width:650px;">
             <h2><i class="fas fa-dolly-flatbed"></i> Bulk Withdraw Stock</h2>
+
+            <div id="bulkWithdrawItemBreakdown" class="withdraw-breakdown-preview" hidden></div>
 
             <div class="item-input">
                 <label>Material Code:</label>

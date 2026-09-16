@@ -4,7 +4,7 @@
 // =============================================================================
 
 import { state } from './state.js';
-import { escapeHtml, formatStockingQty, calculateSingleStockingQtyTotal, formatStockingQtyAndRemarksForDisplay, renderBreakdownCellHtml } from './inventory.js';
+import { escapeHtml, formatStockingQty, calculateSingleStockingQtyTotal, formatStockingQtyAndRemarksForDisplay, renderBreakdownCellHtml, getRowRemarks } from './inventory.js';
 import { saveHistoryData } from './api.js';
 
 const HISTORY_PAGE_SIZE = 50;
@@ -81,7 +81,12 @@ function renderHistoryRowPair(log, searchTerm, insertAtTop) {
   row.insertCell(0).textContent = formattedDate;
   row.insertCell(1).innerHTML = `<span class="history-badge ${getHistoryRowBadgeClass(log.action)}">${highlightMatch(log.action, searchTerm)}</span>`;
   row.insertCell(2).innerHTML = highlightMatch(log.code || '', searchTerm);
-  row.insertCell(3).innerHTML = highlightMatch(log.details || '', searchTerm);
+  const delta = computeSingleItemLogDelta(log);
+  row.insertCell(3).innerHTML =
+    typeof delta === 'number'
+      ? `<span class="${delta > 0 ? 'qty-delta-positive' : delta < 0 ? 'qty-delta-negative' : 'qty-delta-neutral'}">${delta > 0 ? '+' : ''}${delta.toLocaleString()}</span>`
+      : '<span class="qty-delta-neutral">—</span>';
+  row.insertCell(4).innerHTML = highlightMatch(log.details || '', searchTerm);
 
   const detailRow = insertAtTop ? historyTableBody.insertRow(1) : historyTableBody.insertRow();
   detailRow.classList.add('history-detail-row-wrap');
@@ -188,7 +193,11 @@ export function prependHistoryLog(log) {
 
 export function logTransaction(action, code = '-', details = '', meta = null, skipSync = false) {
   const timestamp = new Date();
-  const newLog = { timestamp: timestamp.toISOString(), action, code, details };
+  // Assigned once here, at creation time — if this save fails and later
+  // gets retried, the exact same (already-queued) log object is resent
+  // with this same id, letting the server recognize and skip a duplicate
+  // insert instead of recording the entry twice.
+  const newLog = { timestamp: timestamp.toISOString(), action, code, details, clientId: crypto.randomUUID() };
   if (meta) newLog.meta = meta;
   state.transactionHistory.unshift(newLog);
   if (skipSync) return newLog;
@@ -199,27 +208,54 @@ export function logTransaction(action, code = '-', details = '', meta = null, sk
 
 // --- Detailed Item Report ---
 
+// Computes a single numeric qty delta for a log entry that affects exactly
+// one item (EDIT ITEM, DELIVERY, a single WITHDRAW, etc.) \u2014 returns null for
+// actions that aggregate multiple items into one entry (BULK WITHDRAW, BULK
+// CLEAR QTY), since no single number could represent those correctly, and
+// for anything else with no parseable qty change. Shared by
+// getItemLogsForCode (the Detailed Item Report) and the main Transaction
+// History table's own "Qty Change" column.
+export function computeSingleItemLogDelta(log) {
+  const details = log.details || '';
+  if (log.action === 'EDIT ITEM') {
+    const m = details.match(/Qty: "(.*)" -> "(.*)"/);
+    if (!m) return null;
+    const oldTotal = calculateSingleStockingQtyTotal(formatStockingQty(m[1]));
+    const newTotal = calculateSingleStockingQtyTotal(formatStockingQty(m[2]));
+    return newTotal - oldTotal;
+  }
+  if (log.action === 'DELIVERY (BULK)') {
+    const m = details.match(/^\+([\d,]+(?:\.\d+)?)\s*pcs$/);
+    return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+  }
+  if (log.action === 'BULK WITHDRAW') {
+    // details is a ", "-joined list of "code (-N)" entries, one per item in
+    // that bulk action. Reduce to a single delta only when it covered
+    // exactly one item — with more than one, their quantities are
+    // different items and no single number could represent them correctly.
+    if (details.includes(', ')) return null;
+    const m = details.match(/^.+?\s*\((-[\d,]+(?:\.\d+)?)\)$/);
+    return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+  }
+  // Every other action either aggregates multiple items into one entry
+  // (BULK CLEAR QTY) or has free-text details (RESTORE, IMPORT, BACKUP,
+  // etc.) that can coincidentally contain a hyphen followed by digits —
+  // e.g. a restored backup's filename like "backup_09-14-26_..." — which a
+  // loose regex would misparse as a qty delta. No other action currently
+  // logs an unambiguous one, so don't guess at one.
+  return null;
+}
+
 export function getItemLogsForCode(code) {
   const results = [];
   state.transactionHistory.forEach(log => {
     if (log.code === code) {
       const details = log.details || '';
-      let delta = null;
+      const delta = computeSingleItemLogDelta(log);
       let deltaLabel = details;
-      const plusMatch = details.match(/\+([\d,]+(?:\.\d+)?)/);
-      const minusMatch = details.match(/-([\d,]+(?:\.\d+)?)/);
       if (log.action === 'EDIT ITEM') {
         const m = details.match(/Qty: "(.*)" -> "(.*)"/);
-        if (m) {
-          const oldTotal = calculateSingleStockingQtyTotal(formatStockingQty(m[1]));
-          const newTotal = calculateSingleStockingQtyTotal(formatStockingQty(m[2]));
-          delta = newTotal - oldTotal;
-          deltaLabel = `${m[1] || '(empty)'} \u2192 ${m[2] || '(empty)'}`;
-        }
-      } else if (plusMatch) {
-        delta = parseFloat(plusMatch[1].replace(/,/g, ''));
-      } else if (minusMatch) {
-        delta = -parseFloat(minusMatch[1].replace(/,/g, ''));
+        if (m) deltaLabel = `${m[1] || '(empty)'} \u2192 ${m[2] || '(empty)'}`;
       }
       results.push({ timestamp: log.timestamp, action: log.action, delta, deltaLabel, details, meta: log.meta || null });
     } else if (log.action === 'BULK WITHDRAW' && log.details) {
@@ -258,7 +294,7 @@ export function renderItemDetailedReport(code) {
   const row = state.rowsByCode.get(code);
   const itemReportCurrentBreakdown = document.getElementById('itemReportCurrentBreakdown');
   if (row) {
-    const remarks = JSON.parse(row.dataset.remarks || '[]');
+    const remarks = getRowRemarks(row);
     const formatted = formatStockingQty(row.dataset.stockingQty);
     itemReportCurrentBreakdown.innerHTML =
       formatStockingQtyAndRemarksForDisplay(formatted, remarks) || '<span class="color-grey">No stock recorded</span>';

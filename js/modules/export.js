@@ -6,7 +6,6 @@ import { state } from './state.js';
 import {
   formatStockingQty,
   calculateSingleStockingQtyTotal,
-  getBreakdownParts,
   formatStockingQtyAndRemarksForDisplay,
   simplifyBreakdownForDisplay,
   isShortenBreakdownOn,
@@ -15,6 +14,10 @@ import {
   inferCapacity,
   renderBreakdownCellHtml,
   escapeHtml,
+  getMovedItems,
+  isItemMarkedMoved,
+  getRowRemarks,
+  getRowLocations,
 } from './inventory.js';
 import { saveHistoryData, saveDataToAPI } from './api.js';
 import { logTransaction, renderHistoryLog, prependHistoryLog } from './history.js';
@@ -49,8 +52,8 @@ export function exportReportFile() {
     const code = row.dataset.code;
     const stockingQty = row.dataset.stockingQty;
     const formula = convertToExcelFormula(stockingQty);
-    const remarks = JSON.parse(row.dataset.remarks || '[]').join(' | ');
-    const locations = JSON.parse(row.dataset.locations || '[]')
+    const remarks = getRowRemarks(row).join(' | ');
+    const locations = getRowLocations(row)
       .filter(l => l)
       .join(' | ');
     dataForExport.push([code, stockingQty, formula, remarks, locations]);
@@ -130,20 +133,12 @@ export function printInventory() {
         'error'
       );
     } else {
-      state.transactionHistory.forEach(log => {
-        const logDate = new Date(log.timestamp);
-        if (logDate >= start && logDate <= end) {
-          if (log.action === 'BULK WITHDRAW') {
-            const parts = (log.details || '').split(', ');
-            parts.forEach(p => {
-              const codeMatch = p.match(/^(.*?) \(/);
-              if (codeMatch) movedItems.add(codeMatch[1].trim());
-            });
-          } else if (log.code && log.code !== '-') {
-            movedItems.add(log.code.trim());
-          }
-        }
-      });
+      // Shared with the on-screen movement filter so print and screen never
+      // disagree on which items count as "moved" for the same date range
+      // (this used to be a separate inline copy that hadn't learned about
+      // BULK CLEAR QTY, so cleared items were marked moved on screen but not
+      // on the printed sheet).
+      movedItems = getMovedItems(dateFrom, timeFrom, dateTo, timeTo);
     }
   }
   // If the range was invalid, don't let "only print moved items" silently
@@ -157,39 +152,27 @@ export function printInventory() {
   rows.forEach(row => {
     const code = row.dataset.code;
     const stockingQty = row.dataset.stockingQty;
-    const remarks = JSON.parse(row.dataset.remarks || '[]');
-    const isMoved = showMarking && movedItems.has(code);
+    const remarks = getRowRemarks(row);
+    const isMoved = showMarking && isItemMarkedMoved(code, movedItems);
     if (isMainMovementActive && !isMoved) return;
     printCount++;
 
     let printFormatted = formatStockingQty(stockingQty);
     let printRemarks = remarks;
-    let printLocations = includeBldgRackInPrint ? JSON.parse(row.dataset.locations || '[]') : [];
+    let printLocations = includeBldgRackInPrint ? getRowLocations(row) : [];
     if (isSimplifyBreakdownOn()) {
       const simplifiedPrint = simplifyBreakdownForDisplay(printFormatted, remarks, printLocations);
       printFormatted = simplifiedPrint.formatted;
       printRemarks = simplifiedPrint.remarks;
       printLocations = simplifiedPrint.locations;
     }
-    let breakdownHtml;
-    if (includeColors) {
-      breakdownHtml = formatStockingQtyAndRemarksForDisplay(printFormatted, printRemarks, printLocations, isShortenBreakdownOn());
-    } else {
-      const shorten = isShortenBreakdownOn();
-      breakdownHtml = getBreakdownParts(printFormatted)
-        .map((part, index) => {
-          const trimmedPart = part.trim();
-          let displayText = trimmedPart;
-          if (shorten) {
-            const multMatch = trimmedPart.match(/^([\d.,]+)\s*\u00d7/);
-            if (multMatch) displayText = `(${multMatch[1]})`;
-          }
-          const loc = (printLocations[index] || '').trim();
-          const locTag = loc ? `<span class="location-tag" title="Building/Rack">${escapeHtml(loc)}</span>` : '';
-          return `${escapeHtml(displayText)}${locTag}`;
-        })
-        .join(' | ');
-    }
+    const breakdownHtml = formatStockingQtyAndRemarksForDisplay(
+      printFormatted,
+      printRemarks,
+      printLocations,
+      isShortenBreakdownOn(),
+      !includeColors
+    );
 
     tableRowsHtml += `
         <tr>

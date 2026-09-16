@@ -214,6 +214,19 @@ function buildSavePayload(dataToSave, invOptions, newHistoryEntries, palletCapOp
       payload.palletCapacities = state.palletCapacities;
     }
   }
+
+  // Full-replace saves (Restore/Import/Clear History/Clear All) aren't
+  // naturally safe to retry the same way the day-to-day incremental paths
+  // are (items/pallet upserts are idempotent, but transaction_history's
+  // insert-then-cutoff-delete swap isn't) — tag the whole request with one
+  // id, generated once here and resent verbatim on retry (the queued
+  // payload object is never rebuilt — see processSaveQueue), so the server
+  // can recognize "this exact operation already fully completed" and skip
+  // redoing it instead of duplicating history rows.
+  if (payload.inventoryData !== undefined || payload.transactionHistory !== undefined || payload.palletCapacities !== undefined) {
+    payload.operationId = crypto.randomUUID();
+  }
+
   return payload;
 }
 
