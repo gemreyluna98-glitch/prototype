@@ -1637,6 +1637,14 @@ async function resolveWithdrawAvailability(row, code, requestedTotal) {
 }
 
 addToListWithdrawBtn.addEventListener('click', async () => {
+  // Re-entrancy guard: resolveWithdrawAvailability below can await a
+  // confirmation dialog for several seconds (waiting on the user). Without
+  // this, a stray extra Enter/click while that dialog is still open (e.g.
+  // pressing Enter to confirm it while focus never left the Qty input) fires
+  // this handler a second time with the same code/qty still in the fields,
+  // adding the same item to the list twice.
+  if (addToListWithdrawBtn.disabled) return;
+
   const code = bulkWithdrawItemSearch.value.trim();
   const newQtyString = bulkWithdrawQtyInput.value.trim();
 
@@ -1669,7 +1677,13 @@ addToListWithdrawBtn.addEventListener('click', async () => {
     combinedTotal = calculateSingleStockingQtyTotal(formatStockingQty(combinedQtyString));
   }
 
-  const availability = await resolveWithdrawAvailability(row, code, combinedTotal);
+  setButtonLoading(addToListWithdrawBtn, true);
+  let availability;
+  try {
+    availability = await resolveWithdrawAvailability(row, code, combinedTotal);
+  } finally {
+    setButtonLoading(addToListWithdrawBtn, false);
+  }
   if (!availability.ok) {
     bulkWithdrawErrorMessage.innerHTML = `Cannot withdraw <strong>${combinedTotal.toLocaleString()}</strong> for ${escapeHtml(code)}.`;
     return;

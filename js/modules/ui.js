@@ -92,6 +92,12 @@ function glassDialog(message, { showCancel, allowEnterConfirm = false } = {}) {
     }
     okBtn.onclick = () => cleanup(true);
     cancelBtn.onclick = () => cleanup(false);
+    // Move focus into the dialog so a subsequent Enter/Space targets the OK
+    // button itself, instead of staying on whatever input was focused
+    // underneath (e.g. the Bulk Withdraw Qty field) — otherwise that input's
+    // own Enter handler fires *again* at the same time this dialog is being
+    // confirmed, double-submitting whatever action opened the dialog.
+    okBtn.focus();
     // Deferred to a new task: a dialog opened synchronously from a keydown
     // handler (e.g. pressing Enter to submit a form that itself opens a
     // confirm) would otherwise have this listener attached while that same
