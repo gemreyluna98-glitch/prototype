@@ -489,17 +489,13 @@ export function performWithdrawal(materialCode, withdrawAmount, allowHold = fals
     if (p.partiallyConsumed && p.value !== '') {
       // Use getPriority (startsWith-based) rather than a raw regex — a plain
       // substring match on "old" false-positives on remarks like "hold QC".
-      // HOLD batches are excluded here: only the confirmed amount was meant
-      // to leave HOLD protection, not the rest of the batch — relabeling the
-      // remainder "first out" would make it freely withdrawable without the
-      // HOLD confirmation prompt next time.
-      const remarkStatus = classifyRemark(p.remark);
-      if (getPriority(p.lowerRemark) !== 1 && remarkStatus !== 'hold') {
-        // A dipped-into approved batch has moved on from that status — drop
-        // the "approve(d)" keyword itself (keeping any date/detail after it)
-        // so the remark doesn't confusingly read as both "first out" and
-        // "approved" at once.
-        const remainder = remarkStatus === 'approved'
+      if (getPriority(p.lowerRemark) !== 1) {
+        // A dipped-into HOLD or approved batch has moved on from that status
+        // — drop the "hold"/"approve(d)" keyword itself (keeping any date/
+        // detail after it) so the remark doesn't confusingly read as both
+        // "first out" and "hold"/"approved" at once.
+        const remarkStatus = classifyRemark(p.remark);
+        const remainder = remarkStatus === 'hold' || remarkStatus === 'approved'
           ? p.remark.replace(/^(hold|approved?)\s*/i, '').trim()
           : p.remark;
         p.remark = remainder ? `first out ${remainder}` : 'first out';
